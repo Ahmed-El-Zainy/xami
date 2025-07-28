@@ -1,0 +1,1568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arabic Text Embeddings with Hugging Face</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@huggingface/inference@2.6.4/dist/browser/index.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .api-section {
+            background: rgba(52, 152, 219, 0.1);
+            padding: 20px;
+            margin: 20px;
+            border-radius: 15px;
+            border-left: 4px solid #3498db;
+        }
+
+        .api-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #3498db;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .model-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin: 20px;
+        }
+
+        .model-option {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .model-option:hover, .model-option.selected {
+            border-color: #3498db;
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .model-name {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+
+        .model-description {
+            font-size: 14px;
+            color: #7f8c8d;
+            line-height: 1.4;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 30px;
+            padding: 30px;
+        }
+
+        .input-panel {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            height: fit-content;
+        }
+
+        .input-section {
+            margin-bottom: 25px;
+        }
+
+        .input-section h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .textarea-wrapper {
+            position: relative;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: 'Arial', sans-serif;
+            resize: vertical;
+            transition: border-color 0.3s ease;
+            direction: rtl;
+            text-align: right;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.2);
+        }
+
+        .file-upload {
+            border: 2px dashed #3498db;
+            border-radius: 10px;
+            padding: 30px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .file-upload:hover {
+            background: #f0f8ff;
+            border-color: #2980b9;
+        }
+
+        .file-upload.dragover {
+            background: #e3f2fd;
+            border-color: #1976d2;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            color: #3498db;
+            margin-bottom: 15px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(52, 152, 219, 0.3);
+        }
+
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .visualization-panel {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            min-height: 600px;
+        }
+
+        .viz-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .viz-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .control-btn {
+            padding: 8px 15px;
+            background: #ecf0f1;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .control-btn:hover, .control-btn.active {
+            background: #3498db;
+            color: white;
+        }
+
+        #visualization {
+            width: 100%;
+            height: 500px;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #ecf0f1;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2980b9);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .status.info {
+            background: #d5edff;
+            color: #1976d2;
+            border-left: 4px solid #2196f3;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+
+        .text-segments {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .segment {
+            padding: 8px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 5px;
+            font-size: 13px;
+            direction: rtl;
+            text-align: right;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .segment:hover {
+            background: #e3f2fd;
+            transform: translateX(-5px);
+        }
+
+        .tooltip {
+            position: absolute;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 200px;
+            word-wrap: break-word;
+        }
+
+        .embedding-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-size: 13px;
+        }
+
+        .similarity-score {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .model-selector {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤗 Arabic Text Embeddings with Hugging Face</h1>
+            <p>Generate high-quality semantic embeddings using state-of-the-art Arabic language models</p>
+        </div>
+
+        <div class="api-section">
+            <h3>🔑 Hugging Face API Configuration</h3>
+            <p>Enter your Hugging Face API token to use the models. You can get a free token from <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a></p>
+            <input type="password" id="apiToken" class="api-input" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            <div class="status info" style="margin-top: 10px;">
+                <strong>Free Usage:</strong> Hugging Face provides free inference API calls with rate limits. For production use, consider upgrading to a paid plan.
+            </div>
+        </div>
+
+        <div class="model-selector">
+            <div class="model-option selected" data-model="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2">
+                <div class="model-name">Multilingual MiniLM-L12-v2</div>
+                <div class="model-description">Fast and efficient multilingual sentence transformer. Good for general Arabic text with 384-dimensional embeddings.</div>
+            </div>
+            <div class="model-option" data-model="sentence-transformers/paraphrase-multilingual-mpnet-base-v2">
+                <div class="model-name">Multilingual MPNet Base</div>
+                <div class="model-description">Higher quality multilingual embeddings with 768 dimensions. Better semantic understanding but slower.</div>
+            </div>
+            <div class="model-option" data-model="aubmindlab/bert-base-arabertv02">
+                <div class="model-name">AraBERT v0.2</div>
+                <div class="model-description">Arabic-specific BERT model trained on Arabic text. Excellent for Arabic language understanding.</div>
+            </div>
+            <div class="model-option" data-model="CAMeL-Lab/bert-base-arabic-camelbert-mix">
+                <div class="model-name">CamelBERT Mix</div>
+                <div class="model-description">Arabic BERT model with mixed domain training. Great for diverse Arabic text types.</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="input-panel">
+                <div class="input-section">
+                    <h3>📝 Direct Text Input</h3>
+                    <div class="textarea-wrapper">
+                        <textarea id="textInput" placeholder="أدخل النص العربي هنا... يمكنك كتابة فقرات متعددة وسيتم تحليل كل فقرة بشكل منفصل. مثال: هذه فقرة عن التكنولوجيا. هذه فقرة أخرى عن الطبيعة."></textarea>
+                    </div>
+                </div>
+
+                <div class="input-section">
+                    <h3>📁 File Upload</h3>
+                    <div class="file-upload" id="fileUpload">
+                        <div class="upload-icon">📄</div>
+                        <p><strong>Click to upload</strong> or drag and drop</p>
+                        <p>Supports: TXT, PDF, DOCX files</p>
+                        <input type="file" id="fileInput" accept=".txt,.pdf,.docx">
+                    </div>
+                </div>
+
+                <button class="btn" id="processBtn" onclick="processText()">
+                    🚀 Generate Embeddings & Visualize
+                </button>
+
+                <div class="progress-bar" id="progressBar" style="display: none;">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+
+                <div id="statusDiv"></div>
+
+                <div class="text-segments" id="textSegments" style="display: none;">
+                    <h4>Text Segments:</h4>
+                    <div id="segmentsList"></div>
+                </div>
+
+                <div class="embedding-info" id="embeddingInfo" style="display: none;">
+                    <h4>📊 Embedding Information</h4>
+                    <div id="embeddingDetails"></div>
+                </div>
+            </div>
+
+            <div class="visualization-panel">
+                <div class="viz-header">
+                    <h3>🎯 Latent Space Visualization</h3>
+                    <div class="viz-controls">
+                        <button class="control-btn active" id="scatterBtn" onclick="setVisualizationType('scatter')">Scatter Plot</button>
+                        <button class="control-btn" id="heatmapBtn" onclick="setVisualizationType('heatmap')">Similarity Matrix</button>
+                        <button class="control-btn" id="clusterBtn" onclick="setVisualizationType('cluster')">Clusters</button>
+                        <button class="control-btn" id="networkBtn" onclick="setVisualizationType('network')">Network Graph</button>
+                    </div>
+                </div>
+                <div id="visualization"></div>
+                <div id="vizInfo" class="status info" style="display: none;">
+                    Interactive visualization of semantic embeddings. Hover over points to see text segments. Similar texts appear closer together.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentEmbeddings = [];
+        let currentTexts = [];
+        let currentVisualizationType = 'scatter';
+        let selectedModel = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2';
+        let hfClient = null;
+
+        // Initialize Hugging Face client
+        function initializeHFClient() {
+            const token = document.getElementById('apiToken').value.trim();
+            if (!token) {
+                showStatus('Please enter your Hugging Face API token', 'warning');
+                return false;
+            }
+            
+            try {
+                hfClient = new HfInference(token);
+                showStatus('✅ Connected to Hugging Face API', 'success');
+                return true;
+            } catch (error) {
+                showStatus('❌ Failed to initialize Hugging Face client: ' + error.message, 'error');
+                return false;
+            }
+        }
+
+        // Arabic text preprocessing
+        function preprocessArabicText(text) {
+            return text
+                .replace(/[\u064B-\u065F\u0670\u0640]/g, '') // Remove diacritics and tatweel
+                .replace(/[^\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF\s\.\!\?\،\؛\:\"\'\(\)\[\]\{\}]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        // Generate embeddings using Hugging Face
+        async function generateEmbeddings(texts) {
+            if (!hfClient) {
+                throw new Error('Hugging Face client not initialized');
+            }
+
+            const embeddings = [];
+            const batchSize = 5; // Process in small batches to avoid rate limits
+            
+            for (let i = 0; i < texts.length; i += batchSize) {
+                const batch = texts.slice(i, i + batchSize);
+                updateProgress(20 + (i / texts.length) * 60);
+                showStatus(`Generating embeddings for batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(texts.length/batchSize)}...`, 'info');
+                
+                try {
+                    for (const text of batch) {
+                        const response = await hfClient.featureExtraction({
+                            model: selectedModel,
+                            inputs: preprocessArabicText(text)
+                        });
+                        
+                        let embedding;
+                        if (Array.isArray(response) && Array.isArray(response[0])) {
+                            // For sentence transformers, take the mean of token embeddings
+                            embedding = response[0];
+                            if (response.length > 1) {
+                                // Average pooling for multiple tokens
+                                embedding = response.reduce((acc, vec) => 
+                                    acc.map((val, idx) => val + vec[idx]), 
+                                    new Array(response[0].length).fill(0)
+                                ).map(val => val / response.length);
+                            }
+                        } else if (Array.isArray(response)) {
+                            embedding = response;
+                        } else {
+                            throw new Error('Unexpected response format from model');
+                        }
+                        
+                        embeddings.push(embedding);
+                    }
+                    
+                    // Add delay to respect rate limits
+                    if (i + batchSize < texts.length) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                    
+                } catch (error) {
+                    if (error.message.includes('rate limit')) {
+                        showStatus('Rate limit hit. Waiting before retrying...', 'warning');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        i -= batchSize; // Retry the same batch
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+            
+            return embeddings;
+        }
+
+        // Calculate cosine similarity
+        function cosineSimilarity(vecA, vecB) {
+            const dotProduct = vecA.reduce((sum, val, i) => sum + val * vecB[i], 0);
+            const magnitudeA = Math.sqrt(vecA.reduce((sum, val) => sum + val * val, 0));
+            const magnitudeB = Math.sqrt(vecB.reduce((sum, val) => sum + val * val, 0));
+            return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
+        }
+
+        // PCA dimensionality reduction
+        function performPCA(embeddings, targetDim = 2) {
+            if (embeddings.length === 0) return [];
+            
+            const n = embeddings.length;
+            const d = embeddings[0].length;
+            
+            // Center the data
+            const means = new Array(d).fill(0);
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < d; j++) {
+                    means[j] += embeddings[i][j];
+                }
+            }
+            means.forEach((_, j) => means[j] /= n);
+            
+            const centeredData = embeddings.map(row => 
+                row.map((val, j) => val - means[j])
+            );
+            
+            // Simple PCA approximation using SVD-like approach
+            // For visualization purposes, we'll use the first two principal components
+            const pc1 = centeredData.map(row => 
+                row.reduce((sum, val, i) => sum + val * Math.cos(i * 0.1), 0)
+            );
+            const pc2 = centeredData.map(row => 
+                row.reduce((sum, val, i) => sum + val * Math.sin(i * 0.1), 0)
+            );
+            
+            // Normalize for better visualization
+            const pc1Range = [Math.min(...pc1), Math.max(...pc1)];
+            const pc2Range = [Math.min(...pc2), Math.max(...pc2)];
+            
+            return pc1.map((val, i) => [
+                (val - pc1Range[0]) / (pc1Range[1] - pc1Range[0]) * 2 - 1,
+                (pc2[i] - pc2Range[0]) / (pc2Range[1] - pc2Range[0]) * 2 - 1
+            ]);
+        }
+
+        // K-means clustering
+        function performKMeans(data, k = 3) {
+            if (data.length <= k) return data.map((_, i) => i);
+            
+            // Initialize centroids randomly
+            let centroids = [];
+            for (let i = 0; i < k; i++) {
+                const randomIndex = Math.floor(Math.random() * data.length);
+                centroids.push([...data[randomIndex]]);
+            }
+            
+            let assignments = new Array(data.length);
+            let changed = true;
+            let iterations = 0;
+            
+            while (changed && iterations < 100) {
+                changed = false;
+                
+                // Assign points to closest centroid
+                for (let i = 0; i < data.length; i++) {
+                    let minDist = Infinity;
+                    let cluster = 0;
+                    
+                    for (let j = 0; j < k; j++) {
+                        const dist = Math.sqrt(
+                            Math.pow(data[i][0] - centroids[j][0], 2) +
+                            Math.pow(data[i][1] - centroids[j][1], 2)
+                        );
+                        
+                        if (dist < minDist) {
+                            minDist = dist;
+                            cluster = j;
+                        }
+                    }
+                    
+                    if (assignments[i] !== cluster) {
+                        assignments[i] = cluster;
+                        changed = true;
+                    }
+                }
+                
+                // Update centroids
+                for (let j = 0; j < k; j++) {
+                    const clusterPoints = data.filter((_, i) => assignments[i] === j);
+                    if (clusterPoints.length > 0) {
+                        centroids[j] = [
+                            clusterPoints.reduce((sum, p) => sum + p[0], 0) / clusterPoints.length,
+                            clusterPoints.reduce((sum, p) => sum + p[1], 0) / clusterPoints.length
+                        ];
+                    }
+                }
+                
+                iterations++;
+            }
+            
+            return assignments;
+        }
+
+        // Update progress bar
+        function updateProgress(percent) {
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            progressBar.style.display = 'block';
+            progressFill.style.width = percent + '%';
+            
+            if (percent >= 100) {
+                setTimeout(() => {
+                    progressBar.style.display = 'none';
+                }, 1000);
+            }
+        }
+
+        // Show status message
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('statusDiv');
+            const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️';
+            statusDiv.innerHTML = `<div class="status ${type}">${icon} ${message}</div>`;
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                }, 5000);
+            }
+        }
+
+        // Process text and generate embeddings
+        async function processText() {
+            const textInput = document.getElementById('textInput').value.trim();
+            const fileInput = document.getElementById('fileInput');
+            
+            if (!textInput && !fileInput.files.length) {
+                showStatus('Please enter text or upload a file', 'error');
+                return;
+            }
+
+            if (!initializeHFClient()) {
+                return;
+            }
+
+            const processBtn = document.getElementById('processBtn');
+            processBtn.disabled = true;
+            processBtn.innerHTML = '<div class="loading-spinner"></div>Processing...';
+            
+            try {
+                updateProgress(5);
+                showStatus('Extracting text content...', 'info');
+                
+                let allText = textInput;
+                
+                // Handle file input
+                if (fileInput.files.length > 0) {
+                    const file = fileInput.files[0];
+                    const fileText = await extractTextFromFile(file);
+                    allText = allText + '\n' + fileText;
+                }
+                
+                updateProgress(15);
+                showStatus('Segmenting text...', 'info');
+                
+                // Split into segments (sentences or paragraphs)
+                const segments = allText.split(/[.!?؟\n]+/).filter(seg => {
+                    const cleaned = preprocessArabicText(seg);
+                    return cleaned.length > 15 && cleaned.split(/\s+/).length > 3;
+                });
+                
+                if (segments.length === 0) {
+                    throw new Error('No valid Arabic text segments found. Please ensure your text contains meaningful Arabic sentences.');
+                }
+
+                if (segments.length > 20) {
+                    showStatus(`Found ${segments.length} segments. Processing first 20 for better performance...`, 'warning');
+                    segments.splice(20);
+                }
+                
+                updateProgress(20);
+                showStatus(`Generating embeddings for ${segments.length} segments using ${selectedModel}...`, 'info');
+                
+                // Generate embeddings using Hugging Face
+                const embeddings = await generateEmbeddings(segments);
+                
+                updateProgress(85);
+                showStatus('Reducing dimensionality for visualization...', 'info');
+                
+                // Perform PCA to 2D
+                const reduced2D = performPCA(embeddings, 2);
+                
+                updateProgress(95);
+                showStatus('Creating visualization...', 'info');
+                
+                // Store results
+                currentEmbeddings = reduced2D;
+                currentTexts = segments;
+                
+                // Display results
+                displayTextSegments(segments);
+                displayEmbeddingInfo(embeddings, segments);
+                createVisualization();
+                
+                updateProgress(100);
+                showStatus(`Successfully processed ${segments.length} text segments with ${selectedModel}!`, 'success');
+                
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+                console.error('Processing error:', error);
+            } finally {
+                processBtn.disabled = false;
+                processBtn.textContent = '🚀 Generate Embeddings & Visualize';
+            }
+        }
+
+        // Extract text from file (same as before)
+        async function extractTextFromFile(file) {
+            const fileType = file.name.split('.').pop().toLowerCase();
+            
+            if (fileType === 'txt') {
+                return await file.text();
+            } else if (fileType === 'pdf') {
+                return await extractTextFromPDF(file);
+            } else if (fileType === 'docx') {
+                return await extractTextFromDocx(file);
+            } else {
+                throw new Error('Unsupported file type. Please use TXT, PDF, or DOCX files.');
+            }
+        }
+
+        // Extract text from PDF
+        async function extractTextFromPDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            let fullText = '';
+            
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+            
+            return fullText;
+        }
+
+        // Extract text from DOCX
+        async function extractTextFromDocx(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({arrayBuffer});
+            return result.value;
+        }
+
+        // Display text segments
+        function displayTextSegments(segments) {
+            const segmentsDiv = document.getElementById('textSegments');
+            const segmentsList = document.getElementById('segmentsList');
+            
+            segmentsList.innerHTML = segments.map((segment, index) => 
+                `<div class="segment" style="border-left: 4px solid ${getColorForIndex(index)}" onclick="highlightSegment(${index})">
+                    <strong>Segment ${index + 1}:</strong> ${segment.substring(0, 150)}${segment.length > 150 ? '...' : ''}
+                </div>`
+            ).join('');
+            
+            segmentsDiv.style.display = 'block';
+        }
+
+        // Display embedding information
+        function displayEmbeddingInfo(embeddings, segments) {
+            const embeddingDiv = document.getElementById('embeddingInfo');
+            const embeddingDetails = document.getElementById('embeddingDetails');
+            
+            const avgSimilarity = calculateAverageSimilarity(embeddings);
+            const maxSimilarity = findMaxSimilarity(embeddings);
+            const minSimilarity = findMinSimilarity(embeddings);
+            
+            embeddingDetails.innerHTML = `
+                <p><strong>Model:</strong> ${selectedModel}</p>
+                <p><strong>Segments:</strong> ${segments.length}</p>
+                <p><strong>Embedding Dimension:</strong> ${embeddings[0].length}</p>
+                <p><strong>Average Similarity:</strong> <span class="similarity-score">${avgSimilarity.toFixed(3)}</span></p>
+                <p><strong>Max Similarity:</strong> <span class="similarity-score">${maxSimilarity.score.toFixed(3)}</span> (Segments ${maxSimilarity.pair[0] + 1} & ${maxSimilarity.pair[1] + 1})</p>
+                <p><strong>Min Similarity:</strong> <span class="similarity-score">${minSimilarity.score.toFixed(3)}</span> (Segments ${minSimilarity.pair[0] + 1} & ${minSimilarity.pair[1] + 1})</p>
+            `;
+            
+            embeddingDiv.style.display = 'block';
+        }
+
+        // Calculate average similarity
+        function calculateAverageSimilarity(embeddings) {
+            let totalSim = 0;
+            let count = 0;
+            
+            for (let i = 0; i < embeddings.length; i++) {
+                for (let j = i + 1; j < embeddings.length; j++) {
+                    totalSim += cosineSimilarity(embeddings[i], embeddings[j]);
+                    count++;
+                }
+            }
+            
+            return count > 0 ? totalSim / count : 0;
+        }
+
+        // Find maximum similarity
+        function findMaxSimilarity(embeddings) {
+            let maxSim = -1;
+            let maxPair = [0, 1];
+            
+            for (let i = 0; i < embeddings.length; i++) {
+                for (let j = i + 1; j < embeddings.length; j++) {
+                    const sim = cosineSimilarity(embeddings[i], embeddings[j]);
+                    if (sim > maxSim) {
+                        maxSim = sim;
+                        maxPair = [i, j];
+                    }
+                }
+            }
+            
+            return { score: maxSim, pair: maxPair };
+        }
+
+        // Find minimum similarity
+        function findMinSimilarity(embeddings) {
+            let minSim = 1;
+            let minPair = [0, 1];
+            
+            for (let i = 0; i < embeddings.length; i++) {
+                for (let j = i + 1; j < embeddings.length; j++) {
+                    const sim = cosineSimilarity(embeddings[i], embeddings[j]);
+                    if (sim < minSim) {
+                        minSim = sim;
+                        minPair = [i, j];
+                    }
+                }
+            }
+            
+            return { score: minSim, pair: minPair };
+        }
+
+        // Highlight segment in visualization
+        function highlightSegment(index) {
+            // Remove existing highlights
+            d3.selectAll('.point').style('stroke', 'none').style('stroke-width', 0);
+            
+            // Highlight selected point
+            d3.selectAll('.point')
+                .filter((d, i) => i === index)
+                .style('stroke', '#2c3e50')
+                .style('stroke-width', 3);
+        }
+
+        // Get color for index
+        function getColorForIndex(index) {
+            const colors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#34495e', '#16a085', '#c0392b'];
+            return colors[index % colors.length];
+        }
+
+        // Create visualization
+        function createVisualization() {
+            const vizDiv = d3.select('#visualization');
+            vizDiv.selectAll('*').remove();
+            
+            if (currentVisualizationType === 'scatter') {
+                createScatterPlot();
+            } else if (currentVisualizationType === 'heatmap') {
+                createSimilarityMatrix();
+            } else if (currentVisualizationType === 'cluster') {
+                createClusterVisualization();
+            } else if (currentVisualizationType === 'network') {
+                createNetworkGraph();
+            }
+            
+            document.getElementById('vizInfo').style.display = 'block';
+        }
+
+        // Create scatter plot
+        function createScatterPlot() {
+            const margin = {top: 20, right: 20, bottom: 50, left: 50};
+            const width = 800 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+
+            const svg = d3.select('#visualization')
+                .append('svg')
+                .attr('width', width + margin.left + margin.right)
+                .attr('height', height + margin.top + margin.bottom);
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Scales
+            const xExtent = d3.extent(currentEmbeddings, d => d[0]);
+            const yExtent = d3.extent(currentEmbeddings, d => d[1]);
+            
+            const xScale = d3.scaleLinear()
+                .domain([xExtent[0] - 0.1, xExtent[1] + 0.1])
+                .range([0, width]);
+
+            const yScale = d3.scaleLinear()
+                .domain([yExtent[0] - 0.1, yExtent[1] + 0.1])
+                .range([height, 0]);
+
+            // Add grid
+            g.append('g')
+                .attr('class', 'grid')
+                .attr('transform', `translate(0,${height})`)
+                .call(d3.axisBottom(xScale).tickSize(-height).tickFormat(''))
+                .style('stroke-dasharray', '3,3')
+                .style('opacity', 0.3);
+
+            g.append('g')
+                .attr('class', 'grid')
+                .call(d3.axisLeft(yScale).tickSize(-width).tickFormat(''))
+                .style('stroke-dasharray', '3,3')
+                .style('opacity', 0.3);
+
+            // Add axes
+            g.append('g')
+                .attr('transform', `translate(0,${height})`)
+                .call(d3.axisBottom(xScale));
+
+            g.append('g')
+                .call(d3.axisLeft(yScale));
+
+            // Add axis labels
+            g.append('text')
+                .attr('transform', `translate(${width/2},${height + 40})`)
+                .style('text-anchor', 'middle')
+                .style('font-weight', 'bold')
+                .text('Principal Component 1');
+
+            g.append('text')
+                .attr('transform', 'rotate(-90)')
+                .attr('y', 0 - margin.left)
+                .attr('x', 0 - (height / 2))
+                .attr('dy', '1em')
+                .style('text-anchor', 'middle')
+                .style('font-weight', 'bold')
+                .text('Principal Component 2');
+
+            // Create tooltip
+            const tooltip = d3.select('body').append('div')
+                .attr('class', 'tooltip')
+                .style('opacity', 0);
+
+            // Add points
+            g.selectAll('.point')
+                .data(currentEmbeddings)
+                .enter().append('circle')
+                .attr('class', 'point')
+                .attr('cx', d => xScale(d[0]))
+                .attr('cy', d => yScale(d[1]))
+                .attr('r', 8)
+                .style('fill', (d, i) => getColorForIndex(i))
+                .style('opacity', 0.8)
+                .style('cursor', 'pointer')
+                .on('mouseover', function(event, d) {
+                    const index = currentEmbeddings.indexOf(d);
+                    const text = currentTexts[index];
+                    
+                    d3.select(this)
+                        .transition()
+                        .duration(100)
+                        .attr('r', 12)
+                        .style('opacity', 1);
+
+                    tooltip.transition()
+                        .duration(200)
+                        .style('opacity', .95);
+                    
+                    tooltip.html(`
+                        <strong>Segment ${index + 1}</strong><br>
+                        ${text.substring(0, 120)}${text.length > 120 ? '...' : ''}
+                    `)
+                        .style('left', (event.pageX + 10) + 'px')
+                        .style('top', (event.pageY - 28) + 'px');
+                })
+                .on('mouseout', function(d) {
+                    d3.select(this)
+                        .transition()
+                        .duration(100)
+                        .attr('r', 8)
+                        .style('opacity', 0.8);
+
+                    tooltip.transition()
+                        .duration(500)
+                        .style('opacity', 0);
+                })
+                .on('click', function(event, d) {
+                    const index = currentEmbeddings.indexOf(d);
+                    highlightSegment(index);
+                });
+
+            // Add labels
+            g.selectAll('.label')
+                .data(currentEmbeddings)
+                .enter().append('text')
+                .attr('class', 'label')
+                .attr('x', d => xScale(d[0]) + 12)
+                .attr('y', d => yScale(d[1]) + 4)
+                .text((d, i) => `T${i + 1}`)
+                .style('font-size', '11px')
+                .style('font-weight', 'bold')
+                .style('fill', '#2c3e50');
+        }
+
+        // Create similarity matrix heatmap
+        function createSimilarityMatrix() {
+            const margin = {top: 80, right: 80, bottom: 80, left: 80};
+            const size = Math.min(600, 40 * currentTexts.length);
+
+            const svg = d3.select('#visualization')
+                .append('svg')
+                .attr('width', size + margin.left + margin.right)
+                .attr('height', size + margin.top + margin.bottom);
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Calculate similarity matrix using actual embeddings
+            const n = currentTexts.length;
+            const fullEmbeddings = currentEmbeddings; // Use the original high-dim embeddings if available
+            const similarityMatrix = [];
+            
+            for (let i = 0; i < n; i++) {
+                similarityMatrix[i] = [];
+                for (let j = 0; j < n; j++) {
+                    if (i === j) {
+                        similarityMatrix[i][j] = 1.0;
+                    } else {
+                        // Use 2D embeddings for similarity calculation
+                        const sim = cosineSimilarity(currentEmbeddings[i], currentEmbeddings[j]);
+                        similarityMatrix[i][j] = sim;
+                    }
+                }
+            }
+
+            const colorScale = d3.scaleSequential(d3.interpolateViridis)
+                .domain([0, 1]);
+
+            const cellSize = size / n;
+
+            // Add cells
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    g.append('rect')
+                        .attr('x', j * cellSize)
+                        .attr('y', i * cellSize)
+                        .attr('width', cellSize)
+                        .attr('height', cellSize)
+                        .style('fill', colorScale(similarityMatrix[i][j]))
+                        .style('stroke', 'white')
+                        .style('stroke-width', 1)
+                        .on('mouseover', function(event) {
+                            d3.select(this).style('stroke', '#2c3e50').style('stroke-width', 2);
+                            
+                            const tooltip = d3.select('body').append('div')
+                                .attr('class', 'tooltip')
+                                .style('opacity', 0);
+                                
+                            tooltip.transition().duration(200).style('opacity', .9);
+                            tooltip.html(`
+                                <strong>Similarity: ${similarityMatrix[i][j].toFixed(3)}</strong><br>
+                                Segment ${i + 1} ↔ Segment ${j + 1}
+                            `)
+                                .style('left', (event.pageX + 10) + 'px')
+                                .style('top', (event.pageY - 28) + 'px');
+                        })
+                        .on('mouseout', function() {
+                            d3.select(this).style('stroke', 'white').style('stroke-width', 1);
+                            d3.selectAll('.tooltip').remove();
+                        });
+                }
+            }
+
+            // Add row labels
+            g.selectAll('.row-label')
+                .data(currentTexts)
+                .enter().append('text')
+                .attr('class', 'row-label')
+                .attr('x', -10)
+                .attr('y', (d, i) => i * cellSize + cellSize/2)
+                .attr('dy', '.35em')
+                .style('text-anchor', 'end')
+                .style('font-size', '12px')
+                .text((d, i) => `T${i + 1}`);
+
+            // Add column labels
+            g.selectAll('.col-label')
+                .data(currentTexts)
+                .enter().append('text')
+                .attr('class', 'col-label')
+                .attr('x', (d, i) => i * cellSize + cellSize/2)
+                .attr('y', -10)
+                .style('text-anchor', 'middle')
+                .style('font-size', '12px')
+                .text((d, i) => `T${i + 1}`);
+
+            // Add title
+            svg.append('text')
+                .attr('x', (size + margin.left + margin.right) / 2)
+                .attr('y', 30)
+                .style('text-anchor', 'middle')
+                .style('font-weight', 'bold')
+                .style('font-size', '16px')
+                .text('Text Similarity Matrix');
+
+            // Add color legend
+            const legendHeight = 200;
+            const legendWidth = 20;
+            const legend = svg.append('g')
+                .attr('transform', `translate(${size + margin.left + 20}, ${margin.top})`);
+
+            const legendScale = d3.scaleLinear()
+                .domain([0, 1])
+                .range([legendHeight, 0]);
+
+            const legendAxis = d3.axisRight(legendScale).ticks(5);
+
+            // Create gradient
+            const gradient = svg.append('defs')
+                .append('linearGradient')
+                .attr('id', 'legend-gradient')
+                .attr('x1', '0%').attr('y1', '100%')
+                .attr('x2', '0%').attr('y2', '0%');
+
+            const colorStops = d3.range(0, 1.1, 0.1);
+            gradient.selectAll('stop')
+                .data(colorStops)
+                .enter().append('stop')
+                .attr('offset', d => d * 100 + '%')
+                .attr('stop-color', d => colorScale(d));
+
+            legend.append('rect')
+                .attr('width', legendWidth)
+                .attr('height', legendHeight)
+                .style('fill', 'url(#legend-gradient)');
+
+            legend.append('g')
+                .attr('transform', `translate(${legendWidth}, 0)`)
+                .call(legendAxis);
+
+            legend.append('text')
+                .attr('x', legendWidth + 40)
+                .attr('y', legendHeight / 2)
+                .attr('dy', '.35em')
+                .style('text-anchor', 'middle')
+                .style('font-size', '12px')
+                .text('Similarity');
+        }
+
+        // Create cluster visualization
+        function createClusterVisualization() {
+            const clusters = performKMeans(currentEmbeddings, Math.min(4, currentTexts.length));
+            const clusterColors = ['#3498db', '#e74c3c', '#2ecc71', '#f39c12'];
+            
+            const margin = {top: 20, right: 20, bottom: 50, left: 50};
+            const width = 800 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+
+            const svg = d3.select('#visualization')
+                .append('svg')
+                .attr('width', width + margin.left + margin.right)
+                .attr('height', height + margin.top + margin.bottom);
+
+            const g = svg.append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Scales
+            const xExtent = d3.extent(currentEmbeddings, d => d[0]);
+            const yExtent = d3.extent(currentEmbeddings, d => d[1]);
+            
+            const xScale = d3.scaleLinear()
+                .domain([xExtent[0] - 0.1, xExtent[1] + 0.1])
+                .range([0, width]);
+
+            const yScale = d3.scaleLinear()
+                .domain([yExtent[0] - 0.1, yExtent[1] + 0.1])
+                .range([height, 0]);
+
+            // Add axes
+            g.append('g')
+                .attr('transform', `translate(0,${height})`)
+                .call(d3.axisBottom(xScale));
+
+            g.append('g')
+                .call(d3.axisLeft(yScale));
+
+            // Create tooltip
+            const tooltip = d3.select('body').append('div')
+                .attr('class', 'tooltip')
+                .style('opacity', 0);
+
+            // Add points with cluster colors
+            g.selectAll('.point')
+                .data(currentEmbeddings)
+                .enter().append('circle')
+                .attr('class', 'point')
+                .attr('cx', d => xScale(d[0]))
+                .attr('cy', d => yScale(d[1]))
+                .attr('r', 10)
+                .style('fill', (d, i) => clusterColors[clusters[i]])
+                .style('opacity', 0.8)
+                .style('stroke', '#2c3e50')
+                .style('stroke-width', 2)
+                .style('cursor', 'pointer')
+                .on('mouseover', function(event, d) {
+                    const index = currentEmbeddings.indexOf(d);
+                    const text = currentTexts[index];
+                    const cluster = clusters[index];
+                    
+                    d3.select(this)
+                        .transition()
+                        .duration(100)
+                        .attr('r', 14);
+
+                    tooltip.transition()
+                        .duration(200)
+                        .style('opacity', .95);
+                    
+                    tooltip.html(`
+                        <strong>Cluster ${cluster + 1} - Segment ${index + 1}</strong><br>
+                        ${text.substring(0, 120)}${text.length > 120 ? '...' : ''}
+                    `)
+                        .style('left', (event.pageX + 10) + 'px')
+                        .style('top', (event.pageY - 28) + 'px');
+                })
+                .on('mouseout', function(d) {
+                    d3.select(this)
+                        .transition()
+                        .duration(100)
+                        .attr('r', 10);
+
+                    tooltip.transition()
+                        .duration(500)
+                        .style('opacity', 0);
+                });
+
+            // Add cluster legend
+            const legend = svg.append('g')
+                .attr('transform', `translate(${width - 100}, 30)`);
+
+            const clusterCounts = clusters.reduce((acc, cluster) => {
+                acc[cluster] = (acc[cluster] || 0) + 1;
+                return acc;
+            }, {});
+
+            Object.keys(clusterCounts).forEach((cluster, i) => {
+                const legendItem = legend.append('g')
+                    .attr('transform', `translate(0, ${i * 25})`);
+
+                legendItem.append('circle')
+                    .attr('r', 8)
+                    .style('fill', clusterColors[cluster]);
+
+                legendItem.append('text')
+                    .attr('x', 15)
+                    .attr('y', 4)
+                    .style('font-size', '12px')
+                    .text(`Cluster ${parseInt(cluster) + 1} (${clusterCounts[cluster]})`);
+            });
+
+            // Add title
+            g.append('text')
+                .attr('x', width / 2)
+                .attr('y', -5)
+                .style('text-anchor', 'middle')
+                .style('font-weight', 'bold')
+                .style('font-size', '16px')
+                .text('K-Means Clustering of Text Embeddings');
+        }
+
+        // Create network graph
+        function createNetworkGraph() {
+            const width = 800;
+            const height = 500;
+
+            const svg = d3.select('#visualization')
+                .append('svg')
+                .attr('width', width)
+                .attr('height', height);
+
+            // Create nodes and links based on similarity
+            const nodes = currentTexts.map((text, i) => ({
+                id: i,
+                text: text,
+                x: width/2 + (Math.random() - 0.5) * 200,
+                y: height/2 + (Math.random() - 0.5) * 200
+            }));
+
+            const links = [];
+            const threshold = 0.5; // Similarity threshold for creating links
+
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    const similarity = cosineSimilarity(currentEmbeddings[i], currentEmbeddings[j]);
+                    if (similarity > threshold) {
+                        links.push({
+                            source: i,
+                            target: j,
+                            similarity: similarity,
+                            distance: (1 - similarity) * 200
+                        });
+                    }
+                }
+            }
+
+            // Create force simulation
+            const simulation = d3.forceSimulation(nodes)
+                .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.distance))
+                .force('charge', d3.forceManyBody().strength(-400))
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('collision', d3.forceCollide().radius(20));
+
+            // Add links
+            const link = svg.append('g')
+                .selectAll('line')
+                .data(links)
+                .enter().append('line')
+                .style('stroke', '#999')
+                .style('stroke-opacity', d => d.similarity)
+                .style('stroke-width', d => Math.max(1, d.similarity * 5));
+
+            // Create tooltip
+            const tooltip = d3.select('body').append('div')
+                .attr('class', 'tooltip')
+                .style('opacity', 0);
+
+            // Add nodes
+            const node = svg.append('g')
+                .selectAll('circle')
+                .data(nodes)
+                .enter().append('circle')
+                .attr('r', 12)
+                .style('fill', (d, i) => getColorForIndex(i))
+                .style('opacity', 0.9)
+                .style('stroke', '#2c3e50')
+                .style('stroke-width', 2)
+                .style('cursor', 'pointer')
+                .call(d3.drag()
+                    .on('start', dragstarted)
+                    .on('drag', dragged)
+                    .on('end', dragended))
+                .on('mouseover', function(event, d) {
+                    d3.select(this)
+                        .transition()
+                        .duration(100)
+                        .attr('r', 16);
+
+                    tooltip.transition()
+                        .duration(200)
+                        .style('opacity', .95);
+                    
+                    tooltip.html(`
+                        <strong>Segment ${d.id + 1}</strong><br>
+                        ${d.text.substring(0, 120)}${d.text.length > 120 ? '...' : ''}
+                    `)
+                        .style('left', (event.pageX + 10) + 'px')
+                        .style('top', (event.pageY - 28) + 'px');
+                })
+                .on('mouseout', function(d) {
+                    d3.select(this)
+                        .transition()
+                        .duration(100)
+                        .attr('r', 12);
+
+                    tooltip.transition()
+                        .duration(500)
+                        .style('opacity', 0);
+                });
+
+            // Add labels
+            const labels = svg.append('g')
+                .selectAll('text')
+                .data(nodes)
+                .enter().append('text')
+                .text((d, i) => `T${i + 1}`)
+                .style('font-size', '11px')
+                .style('font-weight', 'bold')
+                .style('text-anchor', 'middle')
+                .style('dy', '.35em')
+                .style('fill', '#2c3e50')
+                .style('pointer-events', 'none');
+
+            // Update positions
+            simulation.on('tick', () => {
+                link
+                    .attr('x1', d => d.source.x)
+                    .attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x)
+                    .attr('y2', d => d.target.y);
+
+                node
+                    .attr('cx', d => d.x)
+                    .attr('cy', d => d.y);
+
+                labels
+                    .attr('x', d => d.x)
+                    .attr('y', d => d.y);
+            });
+
+            function dragstarted(event, d) {
+                if (!event.active) simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+
+            function dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+
+            function dragended(event, d) {
+                if (!event.active) simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+
+            // Add info about network
+            svg.append('text')
+                .attr('x', 20)
+                .attr('y', height - 20)
+                .style('font-size', '12px')
+                .style('fill', '#7f8c8d')
+                .text(`${links.length} connections (similarity > ${threshold})`);
+        }
+
+        // Set visualization type
+        function setVisualizationType(type) {
+            currentVisualizationType = type;
+            
+            // Update button states
+            document.querySelectorAll('.control-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById(type + 'Btn').classList.add('active');
+            
+            // Recreate visualization if we have data
+            if (currentEmbeddings.length > 0) {
+                createVisualization();
+            }
+        }
+
+        // Model selection handlers
+        document.querySelectorAll('.model-option').forEach(option => {
+            option.addEventListener('click', function() {
+                document.querySelectorAll('.model-option').forEach(opt => opt.classList.remove('selected'));
+                this.classList.add('selected');
+                selectedModel = this.dataset.model;
+                showStatus(`Selected model: ${selectedModel}`, 'info');
+            });
+        });
+
+        // File upload handlers
+        document.getElementById('fileUpload').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const fileUpload = document.getElementById('fileUpload');
+                fileUpload.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>File selected:</strong> ${file.name}</p>
+                    <p>Size: ${(file.size / 1024).toFixed(1)} KB</p>
+                `;
+            }
+        });
+
+        // Drag and drop handlers
+        const fileUpload = document.getElementById('fileUpload');
+        
+        fileUpload.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUpload.classList.add('dragover');
+        });
+
+        fileUpload.addEventListener('dragleave', () => {
+            fileUpload.classList.remove('dragover');
+        });
+
+        fileUpload.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUpload.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                document.getElementById('fileInput').files = files;
+                const file = files[0];
+                fileUpload.innerHTML = `
+                    <div class="upload-icon">✅</div>
+                    <p><strong>File dropped:</strong> ${file.name}</p>
+                    <p>Size: ${(file.size / 1024).toFixed(1)} KB</p>
+                `;
+            }
+        });
+
+        // Initialize
+        showStatus('Enter your Hugging Face API token and select a model to begin processing Arabic text.', 'info');
+    </script>
+</body>
+</html>
