@@ -9,6 +9,10 @@ __pycache__/
 .pem
 # Distribution / packaging
 .Python
+*.png
+
+/assets/Physics_ARABIC_3_Secondary_images
+/assets/Physics_ARABIC_3_Secondary.pdf
 build/
 develop-eggs/
 dist/
