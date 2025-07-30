@@ -56,5 +56,6 @@ echo "🌐 The app will open in your browser at http://localhost:7860"
 echo "📱 For mobile access, use your local IP address"
 echo ""
 
+
 # Run the Gradio app
 python3 src/embedding/gradio_ar_emb.py
