@@ -1,0 +1,30 @@
+base_log_dir: logs
+cleanup_temp_logs: false
+console_output: true
+default_level: INFO
+format: '%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'
+metrics_format: json
+modules:
+  document_retrieval:
+    level: INFO
+  embedding:
+    level: INFO
+  main:
+    level: INFO
+  postprocessing:
+    level: INFO
+  preprocessing:
+    level: INFO
+  query_processing:
+    level: INFO
+  rag_pipeline:
+    level: INFO
+  response_validation:
+    level: INFO
+  text_generation:
+    level: INFO
+  vector_search:
+    level: INFO
+save_metrics: true
+temp_log_dir: temp_logs
+temp_log_retention_hours: 24
