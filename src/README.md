@@ -1,4 +1,4 @@
-
+<!-- 
 # Directory structure
 """
 ocr/
@@ -31,7 +31,7 @@ ocr/
 │   └── chunks/           # Text chunks
 └── logs/                 # Application logs
 
-"""
+""" -->
 
 
 
