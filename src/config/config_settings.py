@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     OCR_LANGUAGES: List[str] = ["ar", "en"]  # Arabic and English
     OCR_GPU: bool = True
     
+    
     # Text Processing
     CHUNK_SIZE: int = 512
     CHUNK_OVERLAP: int = 50
@@ -36,6 +37,9 @@ class Settings(BaseSettings):
     # Reranking
     RERANK_TOP_K: int = 20
     FINAL_TOP_K: int = 5
+
+    # DotsOCR Model Configuration
+    DOTS_OCR_MODEL_PATH = "./weights/DotsOCR"  # Path to your DotsOCR model
     
     # File Paths
     UPLOAD_DIR: str = "data/uploads"
