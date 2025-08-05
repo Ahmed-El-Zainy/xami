@@ -10,7 +10,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 *.png
-
+*.json
 /assets/Physics_ARABIC_3_Secondary_images
 /assets/Physics_ARABIC_3_Secondary.pdf
 build/

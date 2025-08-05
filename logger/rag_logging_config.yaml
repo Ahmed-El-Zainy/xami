@@ -1,0 +1,169 @@
+# RAG Pipeline Logging Configuration
+base_log_dir: logs
+temp_log_dir: temp_logs
+default_level: INFO
+console_output: true
+format: "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s"
+
+# Metrics and analytics settings
+save_metrics: true
+metrics_format: json  # json or csv
+cleanup_temp_logs: false
+temp_log_retention_hours: 24
+
+# Module-specific logging levels
+modules:
+  # Core application modules
+  main:
+    level: INFO
+    
+  # RAG Pipeline modules
+  rag_pipeline:
+    level: DEBUG
+    description: "Main RAG pipeline orchestration"
+    
+  document_retrieval:
+    level: INFO
+    description: "Document retrieval and ranking"
+    
+  vector_search:
+    level: DEBUG
+    description: "Vector similarity search operations"
+    
+  embedding:
+    level: INFO
+    description: "Text embedding generation"
+    
+  text_generation:
+    level: INFO
+    description: "LLM text generation"
+    
+  preprocessing:
+    level: INFO
+    description: "Query and document preprocessing"
+    
+  postprocessing:
+    level: INFO
+    description: "Response postprocessing and validation"
+    
+  query_processing:
+    level: DEBUG
+    description: "Query analysis and enhancement"
+    
+  response_validation:
+    level: INFO
+    description: "Response quality validation"
+    
+  # Infrastructure modules
+  database:
+    level: INFO
+    description: "Database operations"
+    
+  cache:
+    level: DEBUG
+    description: "Caching operations"
+    
+  api:
+    level: INFO
+    description: "API request handling"
+    
+  # Web framework modules
+  gradio:
+    level: DEBUG
+    description: "Gradio interface"
+    
+  streamlit:
+    level: DEBUG
+    description: "Streamlit interface"
+    
+  fastapi:
+    level: DEBUG
+    description: "FastAPI backend"
+    
+  # External service modules
+  openai:
+    level: INFO
+    description: "OpenAI API interactions"
+    
+  huggingface:
+    level: INFO
+    description: "HuggingFace model operations"
+    
+  elasticsearch:
+    level: INFO
+    description: "Elasticsearch operations"
+    
+  pinecone:
+    level: INFO
+    description: "Pinecone vector database"
+    
+  chromadb:
+    level: INFO
+    description: "ChromaDB operations"
+    
+  # Monitoring and metrics
+  metrics:
+    level: INFO
+    description: "Performance metrics collection"
+    
+  monitoring:
+    level: INFO
+    description: "System monitoring"
+    
+  health_check:
+    level: INFO
+    description: "Health check operations"
+
+# Custom formatters for different modules
+formatters:
+  detailed:
+    format: "%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(funcName)s:%(lineno)d - %(message)s"
+    modules: ["rag_pipeline", "vector_search", "query_processing"]
+    
+  metrics:
+    format: "%(asctime)s - METRICS - [%(request_id)s] - %(message)s"
+    modules: ["metrics"]
+    
+  api:
+    format: "%(asctime)s - API - %(levelname)s - [%(request_id)s] - %(message)s"
+    modules: ["fastapi", "gradio", "streamlit"]
+
+# Asset tracking configuration
+asset_tracking:
+  enabled: true
+  track_queries: true
+  track_responses: true
+  track_retrieved_documents: true
+  track_embeddings: false  # Can be large, set to true if needed
+  max_query_length: 1000
+  max_response_length: 5000
+  max_documents_per_request: 20
+
+# Performance thresholds for warnings
+performance_thresholds:
+  retrieval_time_warning: 2.0  # seconds
+  generation_time_warning: 5.0  # seconds
+  total_time_warning: 10.0  # seconds
+  low_similarity_warning: 0.5  # similarity score threshold
+
+# Error categorization
+error_categories:
+  retrieval_errors:
+    - "embedding_generation_failed"
+    - "vector_search_failed"
+    - "no_documents_found"
+    
+  generation_errors:
+    - "llm_timeout"
+    - "llm_error"
+    - "invalid_response_format"
+    
+  validation_errors:
+    - "response_too_short"
+    - "response_off_topic"
+    - "inappropriate_content"
+    
+  system_errors:
+    - "database_connection_failed"
+    - "cache_error"
+    - "memory_error"
