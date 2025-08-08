@@ -1,15 +1,9 @@
-
-# run_local.py
-"""
-Local development runner for the RAG Pipeline
-Run this instead of Docker for development
-"""
-
 import asyncio
 import subprocess
 import sys
 import os
 from pathlib import Path
+
 
 def check_dependencies():
     """Check if required dependencies are installed"""

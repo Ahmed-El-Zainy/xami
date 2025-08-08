@@ -1,5 +1,4 @@
 
-# setup.sh
 
 # RAG Pipeline Setup Script
 
