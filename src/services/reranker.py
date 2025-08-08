@@ -5,11 +5,36 @@ from rank_bm25 import BM25Okapi
 import numpy as np
 import re
 from concurrent.futures import ThreadPoolExecutor
+import os 
+import sys 
 
-from config.settings import settings
+
+SCR_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(SCR_DIR)))
+
+from src.config.config_settings import settings
+from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
+from src.models.schemas import SearchResult, RAGResponse
+from src.utilities.arabic_utils import arabic_processor
+
+
+try:
+    # from logger.custom_logger import CustomLoggerTracker
+    custom = CustomLoggerTracker()
+    logger = custom.get_logger("reranker")
+    logger.info("Custom Logger Start Working.....")
+
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("reranker")
+    logger.info("Using standard logger - custom logger not available")
+
+
+from src.config.config_settings import settings
 from config.logging_config import get_logger, log_execution_time
 from models.schemas import SearchResult
-from utils.arabic_utils import arabic_processor
+from src.utilities.arabic_utils import arabic_processor
 
 
 

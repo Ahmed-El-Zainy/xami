@@ -8,13 +8,13 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
 
-from config.settings import settings
+from src.config.config_settings import settings
 from config.logging_config import get_logger
 from api.endpoints import router
-from services.ocr_service import ocr_service
-from services.embedding_service import embedding_service
-from services.vector_db import vector_db_service
-from services.gemini_service import gemini_service
+from src.services.ocr_service import ocr_service
+from src.services.embedding_service import embedding_service
+from src.services.vector_db import vector_db_service
+from src.services.gemini_service import gemini_service
 
 # Initialize logger
 logger = get_logger(__name__)

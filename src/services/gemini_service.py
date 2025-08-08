@@ -5,11 +5,31 @@ from typing import List, Dict, Any, Optional
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import json
+import os 
+import sys 
 
-from config.settings import settings
-from config.logging_config import get_logger, log_execution_time
-from models.schemas import SearchResult, RAGResponse
-from utils.arabic_utils import arabic_processor
+
+SCR_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(SCR_DIR)))
+
+from src.config.config_settings import settings
+from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
+from src.models.schemas import SearchResult, RAGResponse
+from src.utilities.arabic_utils import arabic_processor
+
+
+try:
+    # from logger.custom_logger import CustomLoggerTracker
+    custom = CustomLoggerTracker()
+    logger = custom.get_logger("gemini_serivce")
+    logger.info("Custom Logger Start Working.....")
+
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("gemini_service")
+    logger.info("Using standard logger - custom logger not available")
+
 
 class GeminiService:
     def __init__(self):
@@ -17,9 +37,13 @@ class GeminiService:
         self.model = None
         self.generation_config = None
         self.safety_settings = None
+        self._initialized = False
         
     async def initialize(self):
         """Initialize Gemini API"""
+        if self._initialized:
+            return
+            
         try:
             if not settings.GEMINI_API_KEY:
                 raise ValueError("GEMINI_API_KEY not provided in settings")
@@ -39,6 +63,7 @@ class GeminiService:
             # Test the model
             test_response = await self._generate_text("مرحبا")
             self.logger.info("Gemini API initialized successfully")
+            self._initialized = True
             
         except Exception as e:
             self.logger.error(f"Failed to initialize Gemini API: {str(e)}")
@@ -83,7 +108,7 @@ class GeminiService:
         conversation_history: Optional[List[Dict[str, str]]] = None
     ) -> RAGResponse:
         """Generate RAG response using Gemini"""
-        if not self.model:
+        if not self._initialized:
             await self.initialize()
         
         start_time = time.time()
@@ -269,7 +294,7 @@ class GeminiService:
     
     async def summarize_text(self, text: str, max_length: int = 200) -> str:
         """Summarize text using Gemini"""
-        if not self.model:
+        if not self._initialized:
             await self.initialize()
         
         try:
@@ -297,7 +322,7 @@ Summary:"""
     
     async def generate_questions(self, text: str, num_questions: int = 3) -> List[str]:
         """Generate questions based on text content"""
-        if not self.model:
+        if not self._initialized:
             await self.initialize()
         
         try:
@@ -328,7 +353,7 @@ Summary:"""
     
     async def explain_concept(self, concept: str, context: str = "") -> str:
         """Explain a concept in simple terms"""
-        if not self.model:
+        if not self._initialized:
             await self.initialize()
         
         try:
@@ -347,11 +372,89 @@ Summary:"""
             self.logger.error(f"Error explaining concept: {str(e)}")
             return f"عذراً، لم أتمكن من شرح المفهوم: {concept}"
     
+    async def translate_text(self, text: str, target_language: str = "ar") -> str:
+        """Translate text to target language"""
+        if not self._initialized:
+            await self.initialize()
+        
+        try:
+            if target_language == "ar":
+                prompt = f"""ترجم النص التالي إلى اللغة العربية بدقة مع الحفاظ على المعنى العلمي:
+
+{text}
+
+الترجمة:"""
+            else:
+                prompt = f"""Translate the following Arabic text to {target_language} accurately while maintaining scientific meaning:
+
+{text}
+
+Translation:"""
+            
+            translation = await self._generate_text(prompt)
+            return translation
+            
+        except Exception as e:
+            self.logger.error(f"Error translating text: {str(e)}")
+            return text
+    
+    async def evaluate_answer(self, question: str, student_answer: str, correct_answer: str) -> Dict[str, Any]:
+        """Evaluate student answer against correct answer"""
+        if not self._initialized:
+            await self.initialize()
+        
+        try:
+            prompt = f"""قم بتقييم إجابة الطالب مقارنة بالإجابة الصحيحة وأعط تقييماً مفصلاً:
+
+السؤال: {question}
+
+إجابة الطالب: {student_answer}
+
+الإجابة الصحيحة: {correct_answer}
+
+يرجى تقديم التقييم في الشكل التالي:
+- الدرجة: (من 0 إلى 10)
+- النقاط الصحيحة:
+- النقاط المفقودة:
+- اقتراحات للتحسين:
+
+التقييم:"""
+            
+            evaluation = await self._generate_text(prompt)
+            
+            # Try to parse score from response
+            score = 5  # default score
+            lines = evaluation.split('\n')
+            for line in lines:
+                if 'الدرجة' in line or 'Score' in line:
+                    # Try to extract number
+                    import re
+                    numbers = re.findall(r'\d+', line)
+                    if numbers:
+                        score = min(10, max(0, int(numbers[0])))
+                        break
+            
+            return {
+                "score": score,
+                "max_score": 10,
+                "evaluation": evaluation,
+                "percentage": (score / 10) * 100
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error evaluating answer: {str(e)}")
+            return {
+                "score": 0,
+                "max_score": 10,
+                "evaluation": f"خطأ في التقييم: {str(e)}",
+                "percentage": 0
+            }
+    
     async def health_check(self) -> bool:
         """Check if Gemini API is working"""
         try:
-            if not self.model:
-                return False
+            if not self._initialized:
+                await self.initialize()
             
             test_response = await self._generate_text("مرحبا")
             return len(test_response) > 0
@@ -359,6 +462,202 @@ Summary:"""
         except Exception as e:
             self.logger.error(f"Gemini health check failed: {str(e)}")
             return False
+    
+    async def get_service_info(self) -> Dict[str, Any]:
+        """Get service information and status"""
+        try:
+            is_healthy = await self.health_check()
+            
+            return {
+                "service": "Gemini Service",
+                "model": settings.GEMINI_MODEL if hasattr(settings, 'GEMINI_MODEL') else "Unknown",
+                "initialized": self._initialized,
+                "healthy": is_healthy,
+                "capabilities": [
+                    "RAG Response Generation",
+                    "Text Summarization", 
+                    "Question Generation",
+                    "Concept Explanation",
+                    "Text Translation",
+                    "Answer Evaluation"
+                ]
+            }
+        except Exception as e:
+            return {
+                "service": "Gemini Service",
+                "error": str(e),
+                "healthy": False
+            }
+
 
 # Global Gemini service instance
 gemini_service = GeminiService()
+
+
+# Test Sample and Usage Examples
+async def test_gemini_service():
+    """Comprehensive test suite for Gemini Service"""
+    print("=" * 60)
+    print("🚀 Testing Gemini Service")
+    print("=" * 60)
+    
+    try:
+        # Initialize service
+        print("1. Initializing Gemini Service...")
+        await gemini_service.initialize()
+        print("   ✅ Service initialized successfully")
+        
+        # Test health check
+        print("\n2. Testing health check...")
+        health = await gemini_service.health_check()
+        print(f"   ✅ Health check: {'Passed' if health else 'Failed'}")
+        
+        # Test service info
+        print("\n3. Getting service information...")
+        info = await gemini_service.get_service_info()
+        print(f"   ✅ Service Info:")
+        for key, value in info.items():
+            print(f"      {key}: {value}")
+        
+        # Create sample search results
+        sample_search_results = [
+            SearchResult(
+                text="الخلية هي الوحدة الأساسية للحياة في جميع الكائنات الحية. تحتوي الخلية على النواة التي تحمل المادة الوراثية DNA.",
+                score=0.9,
+                source="كتاب الأحياء - الصف الثاني الثانوي",
+                metadata={"chapter": "الخلية", "page": 15}
+            ),
+            SearchResult(
+                text="تنقسم الخلايا إلى نوعين رئيسيين: الخلايا بدائية النواة والخلايا حقيقية النواة. الخلايا حقيقية النواة تحتوي على نواة محاطة بغشاء.",
+                score=0.85,
+                source="مراجعة الأحياء",
+                metadata={"topic": "أنواع الخلايا"}
+            )
+        ]
+        
+        # Test RAG response generation
+        print("\n4. Testing RAG response generation...")
+        query = "ما هي الخلية وما أنواعها؟"
+        rag_response = await gemini_service.generate_rag_response(query, sample_search_results)
+        print(f"   ✅ RAG Response generated:")
+        print(f"      Query: {rag_response.query}")
+        print(f"      Answer: {rag_response.answer[:100]}...")
+        print(f"      Confidence: {rag_response.confidence_score:.2f}")
+        print(f"      Processing Time: {rag_response.processing_time:.2f}s")
+        
+        # Test with conversation history
+        print("\n5. Testing RAG with conversation history...")
+        conversation_history = [
+            {"user": "ما هي الخلية؟", "assistant": "الخلية هي الوحدة الأساسية للحياة"},
+            {"user": "أريد معرفة المزيد", "assistant": "يمكنني شرح أنواع الخلايا"}
+        ]
+        rag_response_with_history = await gemini_service.generate_rag_response(
+            "اشرح لي الفرق بين أنواع الخلايا", 
+            sample_search_results, 
+            conversation_history
+        )
+        print(f"   ✅ RAG with history: {rag_response_with_history.answer[:100]}...")
+        
+        # Test text summarization
+        print("\n6. Testing text summarization...")
+        long_text = """الخلية هي الوحدة الأساسية للحياة في جميع الكائنات الحية. تحتوي الخلية على مكونات مختلفة مثل النواة والسيتوبلازم والغشاء الخلوي. النواة تحمل المادة الوراثية DNA التي تحدد صفات الكائن الحي. السيتوبلازم هو المادة الهلامية التي تحيط بالنواة وتحتوي على العضيات المختلفة مثل الميتوكوندريا والريبوسومات. الغشاء الخلوي يحيط بالخلية ويتحكم في دخول وخروج المواد."""
+        summary = await gemini_service.summarize_text(long_text, max_length=50)
+        print(f"   ✅ Summary: {summary}")
+        
+        # Test question generation
+        print("\n7. Testing question generation...")
+        educational_text = "الميتوكوندريا هي عضية خلوية تُعرف بأنها مصنع الطاقة في الخلية. تقوم الميتوكوندريا بإنتاج ATP من خلال عملية التنفس الخلوي."
+        questions = await gemini_service.generate_questions(educational_text, num_questions=3)
+        print(f"   ✅ Generated Questions:")
+        for i, question in enumerate(questions, 1):
+            print(f"      {i}. {question}")
+        
+        # Test concept explanation
+        print("\n8. Testing concept explanation...")
+        concept = "التنفس الخلوي"
+        context = "عملية تحويل الجلوكوز إلى طاقة في الميتوكوندريا"
+        explanation = await gemini_service.explain_concept(concept, context)
+        print(f"   ✅ Concept Explanation: {explanation[:150]}...")
+        
+        # Test translation
+        print("\n9. Testing translation...")
+        english_text = "Photosynthesis is the process by which plants convert sunlight into energy."
+        translation = await gemini_service.translate_text(english_text, "ar")
+        print(f"   ✅ Translation: {translation}")
+        
+        # Test answer evaluation
+        print("\n10. Testing answer evaluation...")
+        question = "ما هي وظيفة الميتوكوندريا؟"
+        student_answer = "الميتوكوندريا تنتج الطاقة للخلية"
+        correct_answer = "الميتوكوندريا هي عضية خلوية مسؤولة عن إنتاج الطاقة (ATP) من خلال عملية التنفس الخلوي"
+        evaluation = await gemini_service.evaluate_answer(question, student_answer, correct_answer)
+        print(f"   ✅ Answer Evaluation:")
+        print(f"      Score: {evaluation['score']}/{evaluation['max_score']}")
+        print(f"      Percentage: {evaluation['percentage']}%")
+        print(f"      Evaluation: {evaluation['evaluation'][:100]}...")
+        
+        print("\n" + "=" * 60)
+        print("🎉 All tests completed successfully!")
+        print("=" * 60)
+        
+    except Exception as e:
+        print(f"❌ Test failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+
+# Performance test
+async def performance_test():
+    """Test service performance with multiple concurrent requests"""
+    print("\n🔥 Running Performance Test...")
+    
+    queries = [
+        "ما هي الخلية؟",
+        "اشرح عملية البناء الضوئي",
+        "ما هي أنواع الأنسجة؟",
+        "كيف يتم التنفس الخلوي؟",
+        "ما هي وظيفة الدم؟"
+    ]
+    
+    sample_results = [
+        SearchResult(
+            text="نص تعليمي متعلق بالسؤال",
+            score=0.8,
+            source="مصدر تعليمي",
+            metadata={}
+        )
+    ]
+    
+    start_time = time.time()
+    
+    # Run concurrent requests
+    tasks = [
+        gemini_service.generate_rag_response(query, sample_results) 
+        for query in queries
+    ]
+    
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    total_time = time.time() - start_time
+    
+    successful = sum(1 for r in responses if isinstance(r, RAGResponse))
+    failed = len(responses) - successful
+    
+    print(f"Performance Results:")
+    print(f"  Total requests: {len(queries)}")
+    print(f"  Successful: {successful}")
+    print(f"  Failed: {failed}")
+    print(f"  Total time: {total_time:.2f}s")
+    print(f"  Average time per request: {total_time/len(queries):.2f}s")
+
+
+if __name__ == "__main__":
+    async def main():
+        # Run comprehensive tests
+        await test_gemini_service()
+        
+        # Run performance tests
+        await performance_test()
+    
+    # Run the tests
+    asyncio.run(main())

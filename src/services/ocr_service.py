@@ -15,9 +15,32 @@ import warnings
 
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 from qwen_vl_utils import process_vision_info
+import os 
+import sys 
+
+
+SCR_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(SCR_DIR)))
+
+from src.config.config_settings import settings
+from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
+
+
+try:
+    # from logger.custom_logger import CustomLoggerTracker
+    custom = CustomLoggerTracker()
+    logger = custom.get_logger("ocr_service")
+    logger.info("Custom Logger Start Working.....")
+
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("ocr_serivce")
+    logger.info("Using standard logger - custom logger not available")
+
 
 from config.config_settings import settings
-from config.custom_logger import get_logger, log_execution_time, CustomLoggerTracker
+from config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
 from models.schemas import OCRResult
 
 warnings.filterwarnings("ignore")

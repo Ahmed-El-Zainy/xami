@@ -5,11 +5,38 @@ import re
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import asyncio
+import os 
+import sys 
 
-from ocr.config_setting import settings
-from config.logging_config import get_logger, log_execution_time
-from models.schemas import TextChunk
-from utils.arabic_utils import arabic_processor
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+
+
+from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
+from src.config.config_settings import settings
+from src.models.schemas import TextChunk, EmbeddingResult
+from src.utilities.arabic_utils import arabic_processor
+
+
+try:
+    # from logger.custom_logger import CustomLoggerTracker
+    custom = CustomLoggerTracker()
+    logger = custom.get_logger("test_processor")
+    logger.info("Custom Logger Start Working.....")
+
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("text_processor")
+    logger.info("Using standard logger - custom logger not available")
+
+
+
+from src.config.config_settings import settings
+from src.config.logging_config import get_logger, log_execution_time
+from src.models.schemas import TextChunk
+from src.utilities.arabic_utils import arabic_processor
 
 class TextProcessor:
     def __init__(self):
@@ -289,5 +316,7 @@ class TextProcessor:
         
         return stats
 
-# Global text processor instance
-text_processor = TextProcessor()
+
+if __name__=="__main__":
+    # Global text processor instance
+    text_processor = TextProcessor()

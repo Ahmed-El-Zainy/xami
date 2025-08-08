@@ -1,7 +1,6 @@
 
 
 # RAG Pipeline Setup Script
-
 echo "🚀 Setting up Arabic Educational RAG Pipeline..."
 
 # Check if Docker is installed

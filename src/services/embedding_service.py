@@ -9,19 +9,22 @@ import os
 import sys 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-print(f"SCRIPT_DIR: {SCRIPT_DIR}")
-print(f"os.path.dirname(os.path.dirname(SCRIPT_DIR)): {os.path.dirname(os.path.dirname(SCRIPT_DIR))}")
-print(f"os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR))): {os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))}")
 sys.path.append(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 
 
-from ocr.config.custom_logger import get_logger, log_execution_time, CustomLoggerTracker
+from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
+from src.config.config_settings import settings
+# from config.logging_config import CustomLoggerTracker, get_logger, log_execution_time
+from src.models.schemas import TextChunk, EmbeddingResult
+from src.utilities.arabic_utils import arabic_processor
+
 
 try:
     # from logger.custom_logger import CustomLoggerTracker
     custom = CustomLoggerTracker()
     logger = custom.get_logger("embedding_service")
     logger.info("Custom Logger Start Working.....")
+
 except ImportError:
     import logging
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -29,12 +32,6 @@ except ImportError:
     logger.info("Using standard logger - custom logger not available")
 
 
-
-
-from src.ocr.config.config_settings import settings
-from src.ocr.config.logging_config import get_logger, log_execution_time
-from models.schemas import TextChunk, EmbeddingResult
-from utils.arabic_utils import arabic_processor
 
 class EmbeddingService:
     def __init__(self):
@@ -267,5 +264,37 @@ class EmbeddingService:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-# Global embedding service instance
-embedding_service = EmbeddingService()
+
+if __name__ =="__main__":
+
+    # Global embedding service instance
+    embedding_service = EmbeddingService()
+    async def test_embedding_service():
+        try:
+            # Initialize the embedding service
+            await embedding_service.initialize()
+            
+            # Test embeddings generation
+            test_chunks = [TextChunk(
+                id="test-chunk-1",
+                text="This is a test chunk",
+                metadata={"test": True, "source": "test"},
+                chunk_index=0,
+                source_file="test.pdf"
+            )]
+            embeddings = await embedding_service.generate_embeddings(test_chunks)
+            assert len(embeddings) == 1, "Expected 1 embedding for 1 chunk"
+            assert len(embeddings[0].embedding) == 384, "Expected embedding dimension to be 384"
+            
+            # Test batch similarity search
+            query_embeddings = [np.random.rand(384) for _ in range(2)]  # Mock query embeddings
+            chunk_embeddings = [np.random.rand(384) for _ in range(5)]  # Mock chunk embeddings
+            results = await embedding_service.batch_similarity_search(query_embeddings, chunk_embeddings, top_k=3)
+            assert len(results) == 2, "Expected 2 sets of results for 2 query embeddings"
+            assert all(len(result) == 3 for result in results), "Expected top 3 similar chunks for each query"
+            
+            print("All tests passed successfully.")
+        except Exception as e:
+            print(f"Test failed: {str(e)}")
+    
+    asyncio.run(test_embedding_service())

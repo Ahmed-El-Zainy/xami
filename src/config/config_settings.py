@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     FINAL_TOP_K: int = 5
 
     # DotsOCR Model Configuration
-    DOTS_OCR_MODEL_PATH = "./weights/DotsOCR"  # Path to your DotsOCR model
+    DOTS_OCR_MODEL_PATH : str = "./weights/DotsOCR"  # Path to your DotsOCR model
     
     # File Paths
     UPLOAD_DIR: str = "data/uploads"

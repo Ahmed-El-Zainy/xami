@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 import hashlib
 import mimetypes
 
-from config.settings import settings
+from src.config.config_settings import settings
 from config.logging_config import get_logger
 
 logger = get_logger(__name__)

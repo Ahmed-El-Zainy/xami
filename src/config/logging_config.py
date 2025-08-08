@@ -13,7 +13,7 @@ import logging
 import colorlog
 import os
 from datetime import datetime
-from config.config_settings import settings
+from src.config.config_settings import settings
 
 class CustomLogger:
     def __init__(self, name: str):
