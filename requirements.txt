@@ -78,6 +78,21 @@ google-generativeai==0.3.2
 pyarabic==0.6.15
 nltk==3.8.1
 
+
+gradio
+gradio_image_annotation
+PyMuPDF
+openai
+qwen_vl_utils
+transformers==4.51.3
+huggingface_hub
+modelscope
+flash-attn==2.8.0.post2
+accelerate
+torch==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+torchvision==0.22.0 
+torchaudio==2.7.0 
+
 # Utilities
 python-dotenv==1.0.0
 tqdm==4.66.1
