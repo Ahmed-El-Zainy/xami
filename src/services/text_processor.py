@@ -8,9 +8,7 @@ import asyncio
 import os 
 import sys 
 
-
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker

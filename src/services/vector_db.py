@@ -9,11 +9,11 @@ from qdrant_client.http.models import (
 )
 import numpy as np
 import uuid
+import os 
+import sys 
 
 
-
-SCR_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.dirname(os.path.dirname(SCR_DIR)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config.config_settings import settings
 from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
