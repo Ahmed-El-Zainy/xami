@@ -413,5 +413,7 @@ class DotsOCRService:
             del self.processor
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-# Global OCR service instance
-ocr_service = DotsOCRService()
+
+
+if __name__=="__main__":
+    ocr_service = DotsOCRService()
