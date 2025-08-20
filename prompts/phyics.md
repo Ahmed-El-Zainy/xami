@@ -34,6 +34,7 @@
   "level": "0",
   "subject_id": "0",
   "topic_id": "<رقم الموضوع>",
+  "sub_topic": "chapter",
   "image": "",
   "difficulty": "سهل",
   "topic_dbr": "<سلسلة الترميز>"
@@ -81,6 +82,7 @@
   "level": "0",
   "subject_id": "0",
   "topic_id": "<رقم الموضوع>",
+  "sub_topic": "chapters",
   "image": "",
   "difficulty": "سهل",
   "topic_dbr": "<سلسلة الترميز>"
@@ -129,6 +131,7 @@
   "level": "0",
   "subject_id": "0",
   "topic_id": "<رقم الموضوع>",
+  "sub_topic": "chapters",
   "image": "",
   "difficulty": "سهل",
   "topic_dbr": "<سلسلة الترميز>"
