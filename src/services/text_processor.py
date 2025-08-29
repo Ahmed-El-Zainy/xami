@@ -20,7 +20,7 @@ from src.utilities.arabic_utils import arabic_processor
 try:
     # from logger.custom_logger import CustomLoggerTracker
     custom = CustomLoggerTracker()
-    logger = custom.get_logger("test_processor")
+    logger = custom.get_logger("text_processor")
     logger.info("Custom Logger Start Working.....")
 
 except ImportError:
@@ -113,56 +113,37 @@ class TextProcessor:
             raise
     
     def _clean_text(self, text: str) -> str:
-        """Clean and normalize text"""
-        # Remove multiple consecutive whitespace
         text = re.sub(r'\s+', ' ', text)
-        
-        # Remove page numbers and headers/footers patterns
         text = re.sub(r'\n\s*\d+\s*\n', '\n', text)
         text = re.sub(r'\n\s*صفحة\s*\d+\s*\n', '\n', text)
-        
-        # Clean using Arabic processor
         text = arabic_processor.clean_arabic_text(text)
-        
-        # Remove very short lines (likely noise)
         lines = text.split('\n')
         cleaned_lines = [line for line in lines if len(line.strip()) > 5]
-        
         return '\n'.join(cleaned_lines).strip()
     
     async def _split_text_into_chunks(self, text: str) -> List[str]:
-        """Split text into semantic chunks"""
         # First, try to split by natural boundaries
         chunks = await self._semantic_chunking(text)
-        
-        # If chunks are too large, apply sliding window
         final_chunks = []
         for chunk in chunks:
             if len(chunk) <= settings.CHUNK_SIZE:
                 final_chunks.append(chunk)
             else:
-                # Split large chunks using sliding window
                 sub_chunks = self._sliding_window_split(chunk)
                 final_chunks.extend(sub_chunks)
-        
         return final_chunks
     
+
     async def _semantic_chunking(self, text: str) -> List[str]:
-        """Split text based on semantic boundaries"""
-        # Split by paragraphs first
         paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-        
         chunks = []
         current_chunk = ""
-        
         for paragraph in paragraphs:
-            # If adding this paragraph would exceed chunk size
             if len(current_chunk) + len(paragraph) > settings.CHUNK_SIZE:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                     current_chunk = paragraph
                 else:
-                    # Paragraph itself is too long, split it
                     sentences = arabic_processor.segment_sentences(paragraph)
                     for sentence in sentences:
                         if len(current_chunk) + len(sentence) > settings.CHUNK_SIZE:
@@ -173,42 +154,32 @@ class TextProcessor:
                             current_chunk += " " + sentence if current_chunk else sentence
             else:
                 current_chunk += "\n\n" + paragraph if current_chunk else paragraph
-        
         if current_chunk:
             chunks.append(current_chunk.strip())
-        
         return chunks
     
+
     def _sliding_window_split(self, text: str) -> List[str]:
-        """Split text using sliding window approach"""
         words = text.split()
         chunks = []
-        
-        # Estimate words per chunk (roughly)
         avg_word_length = sum(len(word) for word in words) / len(words) if words else 10
         words_per_chunk = int(settings.CHUNK_SIZE / avg_word_length)
         overlap_words = int(settings.CHUNK_OVERLAP / avg_word_length)
-        
         start = 0
         while start < len(words):
             end = min(start + words_per_chunk, len(words))
             chunk_words = words[start:end]
             chunk_text = ' '.join(chunk_words)
-            
             if len(chunk_text.strip()) >= settings.MIN_CHUNK_SIZE:
                 chunks.append(chunk_text)
-            
             if end >= len(words):
                 break
-            
             start = end - overlap_words if overlap_words > 0 else end
-        
         return chunks
     
+
     async def _save_chunks_to_files(self, chunks: List[TextChunk], source_file: str):
-        """Save chunks to individual files"""
         try:
-            # Create directory for this document's chunks
             doc_name = Path(source_file).stem
             chunks_dir = Path(settings.CHUNKS_DIR) / doc_name
             chunks_dir.mkdir(parents=True, exist_ok=True)
