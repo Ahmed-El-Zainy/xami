@@ -1,4 +1,3 @@
-# services/gemini_service.py
 import asyncio
 import time
 from typing import List, Dict, Any, Optional
