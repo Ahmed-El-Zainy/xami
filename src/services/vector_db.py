@@ -35,9 +35,7 @@ except ImportError:
 
 
 
-from src.config.config_settings import settings
-from config.logging_config import get_logger, log_execution_time
-from models.schemas import EmbeddingResult, SearchResult
+from src.models.schemas import EmbeddingResult, SearchResult
 
 class VectorDBService:
     def __init__(self):
@@ -64,10 +62,49 @@ class VectorDBService:
                 await self._create_collection()
             else:
                 self.logger.info(f"Collection '{self.collection_name}' already exists")
-            
+
             # Get collection info
             collection_info = self.client.get_collection(self.collection_name)
             self.logger.info(f"Collection info: {collection_info}")
+
+            # Ensure vector size matches settings; recreate if mismatch
+            try:
+                current_size = collection_info.config.params.vectors.size
+                if int(current_size) != int(settings.VECTOR_SIZE):
+                    self.logger.warning(
+                        f"Vector size mismatch (have {current_size}, want {settings.VECTOR_SIZE}). Recreating collection..."
+                    )
+                    self.client.delete_collection(self.collection_name)
+                    await self._create_collection()
+                    collection_info = self.client.get_collection(self.collection_name)
+                    self.logger.info("Collection recreated with updated vector size")
+            except Exception as e:
+                self.logger.warning(f"Failed to validate vector size: {str(e)}")
+
+            # Ensure indices for hierarchical filters
+            try:
+                for field, schema in [
+                    ("curriculum", models.PayloadSchemaType.KEYWORD),
+                    ("grade", models.PayloadSchemaType.KEYWORD),
+                    ("subject", models.PayloadSchemaType.KEYWORD),
+                    ("term", models.PayloadSchemaType.KEYWORD),
+                    ("book", models.PayloadSchemaType.KEYWORD),
+                    ("chapter", models.PayloadSchemaType.KEYWORD),
+                    ("section", models.PayloadSchemaType.KEYWORD),
+                    ("page", models.PayloadSchemaType.INTEGER),
+                ]:
+                    try:
+                        self.client.create_payload_index(
+                            collection_name=self.collection_name,
+                            field_name=field,
+                            field_schema=schema,
+                            wait=True
+                        )
+                    except Exception:
+                        # Likely already exists
+                        pass
+            except Exception as e:
+                self.logger.warning(f"Failed to ensure payload indices: {str(e)}")
             
         except Exception as e:
             self.logger.error(f"Failed to initialize Qdrant: {str(e)}")
@@ -85,19 +122,7 @@ class VectorDBService:
                     distance=Distance.COSINE,  # Best for normalized embeddings
                     on_disk=True  # Store vectors on disk for large datasets
                 ),
-                # Optimize for Arabic content
-                optimizers_config=models.OptimizersConfig(
-                    deleted_threshold=0.2,
-                    vacuum_min_vector_number=1000,  # Suitable for large documents
-                    default_segment_number=4,  # Good for ~500 page books
-                ),
-                # HNSW configuration for large datasets
-                hnsw_config=models.HnswConfig(
-                    m=16,  # Number of connections
-                    ef_construct=200,  # Construction parameter
-                    full_scan_threshold=10000,  # When to use full scan
-                    max_indexing_threads=0  # Use all available threads
-                )
+                # Use defaults; newer clients require additional fields in OptimizersConfig
             )
             
             self.logger.info(f"Collection '{self.collection_name}' created successfully")
@@ -123,10 +148,26 @@ class VectorDBService:
             points = []
             for embedding_result in embeddings:
                 # Create payload with metadata
+                # Enforce hierarchical schema in payload
+                meta = embedding_result.metadata or {}
                 payload = {
                     "text": embedding_result.text,
                     "chunk_id": embedding_result.chunk_id,
-                    **embedding_result.metadata
+                    # hierarchy
+                    "curriculum": meta.get("curriculum"),
+                    "grade": meta.get("grade"),
+                    "subject": meta.get("subject"),
+                    "term": meta.get("term"),  # first|second
+                    "book": meta.get("book"),
+                    "chapter": meta.get("chapter"),
+                    "section": meta.get("section"),
+                    "page": meta.get("page"),
+                    # provenance
+                    "source_file": meta.get("source_file"),
+                    "chunk_number": meta.get("chunk_number"),
+                    "total_chunks": meta.get("total_chunks"),
+                    "keywords": meta.get("keywords"),
+                    "language": meta.get("language"),
                 }
                 
                 # Create point
@@ -179,23 +220,19 @@ class VectorDBService:
             # Prepare filter if provided
             query_filter = None
             if filters:
-                conditions = []
+                must_conditions = []
                 for key, value in filters.items():
+                    if value is None:
+                        continue
                     if isinstance(value, list):
-                        # Multiple values - use should condition
                         should_conditions = [
-                            FieldCondition(key=key, match=MatchValue(value=v))
-                            for v in value
+                            FieldCondition(key=key, match=MatchValue(value=v)) for v in value
                         ]
-                        conditions.append(models.Filter(should=should_conditions))
+                        must_conditions.append(models.Filter(should=should_conditions))
                     else:
-                        # Single value
-                        conditions.append(
-                            FieldCondition(key=key, match=MatchValue(value=value))
-                        )
-                
-                if conditions:
-                    query_filter = models.Filter(must=conditions)
+                        must_conditions.append(FieldCondition(key=key, match=MatchValue(value=value)))
+                if must_conditions:
+                    query_filter = models.Filter(must=must_conditions)
             
             # Perform search
             search_result = self.client.search(
@@ -528,5 +565,7 @@ class VectorDBService:
 
 
 if __name__=="__main__":
-    # Global vector database service instance
-    vector_db_service = VectorDBService()
+    pass
+
+# Global vector database service instance
+vector_db_service = VectorDBService()

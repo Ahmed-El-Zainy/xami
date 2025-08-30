@@ -26,6 +26,7 @@ from src.services.embedding_service import embedding_service
 from src.services.vector_db import vector_db_service
 from src.services.reranker import reranker_service
 from src.services.gemini_service import gemini_service
+from src.services.llm_service import llm_service
 from src.utilities.file_utils import file_manager
 
 # Initialize logger
@@ -44,6 +45,16 @@ class QueryRequest(BaseModel):
     top_k: int = 5
     rerank: bool = True
     conversation_history: Optional[List[Dict[str, str]]] = None
+
+class HierarchyMetadata(BaseModel):
+    curriculum: Optional[str] = None
+    grade: Optional[str] = None
+    subject: Optional[str] = None
+    term: Optional[str] = None  # first | second
+    book: Optional[str] = None
+    chapter: Optional[str] = None
+    section: Optional[str] = None
+    page: Optional[int] = None
 
 class SummarizeRequest(BaseModel):
     text: str
@@ -107,7 +118,14 @@ async def health_check():
 @router.post("/upload-document/")
 async def upload_document(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    curriculum: Optional[str] = Query(None),
+    grade: Optional[str] = Query(None),
+    subject: Optional[str] = Query(None),
+    term: Optional[str] = Query(None),
+    book: Optional[str] = Query(None),
+    chapter: Optional[str] = Query(None),
+    section: Optional[str] = Query(None)
 ):
     """Upload and process a PDF document"""
     try:
@@ -146,8 +164,21 @@ async def upload_document(
             file_size=file.size
         )
         
-        # Start background processing
-        background_tasks.add_task(process_document_background, file_id, file_path)
+        # Start background processing with hierarchy metadata
+        background_tasks.add_task(
+            process_document_background,
+            file_id,
+            file_path,
+            {
+                "curriculum": curriculum,
+                "grade": grade,
+                "subject": subject,
+                "term": term,
+                "book": book,
+                "chapter": chapter,
+                "section": section,
+            }
+        )
         
         logger.info(f"Document uploaded: {file.filename} with ID: {file_id}")
         
@@ -164,7 +195,7 @@ async def upload_document(
         logger.error(f"Error uploading document: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-async def process_document_background(file_id: str, file_path: Path):
+async def process_document_background(file_id: str, file_path: Path, hierarchy: Optional[Dict[str, Any]] = None):
     """Background task to process uploaded document"""
     try:
         logger.info(f"Starting background processing for file_id: {file_id}")
@@ -202,7 +233,8 @@ async def process_document_background(file_id: str, file_path: Path):
                 "file_id": file_id,
                 "ocr_confidence": ocr_result.confidence,
                 "language": ocr_result.language_detected,
-                "page_count": ocr_result.page_count
+                "page_count": ocr_result.page_count,
+                **(hierarchy or {})
             }
         )
         
@@ -291,7 +323,14 @@ async def rag_query(
     query: str = Query(..., description="The query to search for"),
     top_k: int = Query(5, ge=1, le=20, description="Number of results to return"),
     rerank: bool = Query(True, description="Whether to rerank results"),
-    conversation_history: Optional[str] = Query(None, description="JSON string of conversation history")
+    conversation_history: Optional[str] = Query(None, description="JSON string of conversation history"),
+    curriculum: Optional[str] = Query(None),
+    grade: Optional[str] = Query(None),
+    subject: Optional[str] = Query(None),
+    term: Optional[str] = Query(None),
+    book: Optional[str] = Query(None),
+    chapter: Optional[str] = Query(None),
+    section: Optional[str] = Query(None)
 ):
     """Perform RAG query against the knowledge base"""
     try:
@@ -312,10 +351,23 @@ async def rag_query(
         query_embedding = await embedding_service.generate_query_embedding(query)
         
         # Step 2: Search vector database
+        filters = {
+            "curriculum": curriculum,
+            "grade": grade,
+            "subject": subject,
+            "term": term,
+            "book": book,
+            "chapter": chapter,
+            "section": section,
+        }
+        # remove Nones
+        filters = {k: v for k, v in filters.items() if v is not None}
+
         search_results = await vector_db_service.search_similar(
             query_vector=query_embedding.tolist(),
             limit=settings.RERANK_TOP_K if rerank else top_k,
-            score_threshold=0.3
+            score_threshold=0.3,
+            filters=filters if filters else None
         )
         
         if not search_results:
@@ -329,15 +381,21 @@ async def rag_query(
         
         # Step 3: Rerank if requested
         if rerank:
+            # Prefer Qwen reranker as main; fallback handled inside service
             search_results = await reranker_service.rerank_results(
-                query, search_results, method="hybrid"
+                query, search_results, method="qwen"
             )
             search_results = search_results[:top_k]
         
-        # Step 4: Generate response using Gemini
-        rag_response = await gemini_service.generate_rag_response(
-            query, search_results, parsed_history
-        )
+        # Step 4: Generate response using Ollama (primary) or Gemini fallback
+        try:
+            rag_response = await llm_service.generate_rag_response(
+                query, search_results, parsed_history
+            )
+        except Exception:
+            rag_response = await gemini_service.generate_rag_response(
+                query, search_results, parsed_history
+            )
         
         logger.info(f"RAG query completed in {rag_response.processing_time:.2f}s")
         return rag_response
@@ -366,7 +424,7 @@ async def search_documents(request: QueryRequest):
         # Rerank if requested
         if request.rerank:
             search_results = await reranker_service.rerank_results(
-                request.query, search_results, method="hybrid"
+                request.query, search_results, method="qwen"
             )
             search_results = search_results[:request.top_k]
         
@@ -381,7 +439,10 @@ async def search_documents(request: QueryRequest):
 async def summarize_text(request: SummarizeRequest):
     """Summarize provided text"""
     try:
-        summary = await gemini_service.summarize_text(request.text, request.max_length)
+        try:
+            summary = await llm_service.summarize_text(request.text, request.max_length)
+        except Exception:
+            summary = await gemini_service.summarize_text(request.text, request.max_length)
         
         return {
             "original_text": request.text[:200] + "..." if len(request.text) > 200 else request.text,
@@ -400,7 +461,10 @@ async def summarize_text(request: SummarizeRequest):
 async def generate_questions(request: QuestionGenerationRequest):
     """Generate questions from provided text"""
     try:
-        questions = await gemini_service.generate_questions(request.text, request.num_questions)
+        try:
+            questions = await llm_service.generate_questions(request.text, request.num_questions)
+        except Exception:
+            questions = await gemini_service.generate_questions(request.text, request.num_questions)
         
         return {
             "text": request.text[:200] + "..." if len(request.text) > 200 else request.text,
@@ -417,11 +481,14 @@ async def generate_questions(request: QuestionGenerationRequest):
 async def evaluate_answer(request: AnswerEvaluationRequest):
     """Evaluate student answer against correct answer"""
     try:
-        evaluation = await gemini_service.evaluate_answer(
-            request.question, 
-            request.student_answer, 
-            request.correct_answer
-        )
+        try:
+            evaluation = await llm_service.evaluate_answer(
+                request.question, request.student_answer, request.correct_answer
+            )
+        except Exception:
+            evaluation = await gemini_service.evaluate_answer(
+                request.question, request.student_answer, request.correct_answer
+            )
         
         return evaluation
         
@@ -572,6 +639,7 @@ async def get_system_info():
     try:
         # Get service information
         gemini_info = await gemini_service.get_service_info()
+        llm_info = await llm_service.get_service_info()
         
         # Get embedding service info
         embedding_stats = {}
@@ -590,11 +658,13 @@ async def get_system_info():
             },
             "services": {
                 "gemini": gemini_info,
+                "ollama_llm": llm_info,
                 "embedding": embedding_stats,
                 "vector_db": {
                     "type": "Qdrant",
                     "collection": settings.QDRANT_COLLECTION_NAME
-                }
+                },
+                "resource_manager": {"note": "Ensures only one heavy GPU module active at a time"}
             },
             "configuration": {
                 "chunk_size": settings.CHUNK_SIZE,

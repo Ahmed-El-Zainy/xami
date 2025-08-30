@@ -298,8 +298,12 @@ async def initialize_services():
         await embedding_service.initialize()
         
         # 4. Gemini Service (no dependencies)
-        logger.info("Initializing Gemini Service...")
-        await gemini_service.initialize()
+        # Keeping Gemini optional if migrating to Ollama LLM; initialize if configured
+        try:
+            logger.info("Initializing Gemini Service (optional)...")
+            await gemini_service.initialize()
+        except Exception as e:
+            logger.warning(f"Gemini initialization skipped/failed: {str(e)}")
         
         logger.info("All services initialized successfully")
         

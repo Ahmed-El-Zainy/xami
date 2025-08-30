@@ -63,42 +63,56 @@ def get_logger(name: str) -> logging.Logger:
     return CustomLogger(name).get_logger()
 
 # Performance logging decorator
-def log_execution_time(logger):
-    def decorator(func):
-        import functools
-        import time
-        
+def log_execution_time(_logger=None):
+    """Decorator usable as @log_execution_time or @log_execution_time(logger)."""
+    import functools
+    import time
+    import logging as _logging
+    import asyncio as _asyncio
+
+    def _decorate(func, logger_obj):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
             start_time = time.time()
             try:
                 result = await func(*args, **kwargs)
                 execution_time = time.time() - start_time
-                logger.info(f"{func.__name__} executed in {execution_time:.2f} seconds")
+                logger_obj.info(f"{func.__name__} executed in {execution_time:.2f} seconds")
                 return result
             except Exception as e:
                 execution_time = time.time() - start_time
-                logger.error(f"{func.__name__} failed after {execution_time:.2f} seconds: {str(e)}")
+                logger_obj.error(f"{func.__name__} failed after {execution_time:.2f} seconds: {str(e)}")
                 raise
-        
+
         @functools.wraps(func)
         def sync_wrapper(*args, **kwargs):
             start_time = time.time()
             try:
                 result = func(*args, **kwargs)
                 execution_time = time.time() - start_time
-                logger.info(f"{func.__name__} executed in {execution_time:.2f} seconds")
+                logger_obj.info(f"{func.__name__} executed in {execution_time:.2f} seconds")
                 return result
             except Exception as e:
                 execution_time = time.time() - start_time
-                logger.error(f"{func.__name__} failed after {execution_time:.2f} seconds: {str(e)}")
+                logger_obj.error(f"{func.__name__} failed after {execution_time:.2f} seconds: {str(e)}")
                 raise
-        
-        import asyncio
-        if asyncio.iscoroutinefunction(func):
+
+        if _asyncio.iscoroutinefunction(func):
             return async_wrapper
         else:
             return sync_wrapper
+
+    # Used as @log_execution_time
+    if callable(_logger):
+        func = _logger
+        logger_obj = _logging.getLogger(func.__module__)
+        return _decorate(func, logger_obj)
+
+    # Used as @log_execution_time(logger)
+    def decorator(func):
+        logger_obj = _logger or _logging.getLogger(func.__module__)
+        return _decorate(func, logger_obj)
+
     return decorator
 
 

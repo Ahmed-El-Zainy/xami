@@ -1,10 +1,12 @@
 # services/reranker.py
 import asyncio
+import gc
 from typing import List, Dict, Any, Tuple
 from rank_bm25 import BM25Okapi
 import numpy as np
 import re
 from concurrent.futures import ThreadPoolExecutor
+import torch
 import os 
 import sys 
 
@@ -14,6 +16,7 @@ from src.config.config_settings import settings
 from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
 from src.models.schemas import SearchResult, RAGResponse
 from src.utilities.arabic_utils import arabic_processor
+from src.services.resource_manager import resource_manager
 
 
 try:
@@ -30,8 +33,8 @@ except ImportError:
 
 
 from src.config.config_settings import settings
-from config.logging_config import get_logger, log_execution_time
-from models.schemas import SearchResult
+from src.config.logging_config import get_logger, log_execution_time
+from src.models.schemas import SearchResult
 from src.utilities.arabic_utils import arabic_processor
 
 
@@ -40,6 +43,8 @@ class RerankerService:
     def __init__(self):
         self.logger = get_logger(__name__)
         self.executor = ThreadPoolExecutor(max_workers=2)
+        self.hf_model = None
+        self.hf_tokenizer = None
         
     @log_execution_time
     async def rerank_results(
@@ -65,6 +70,8 @@ class RerankerService:
                 return await self._semantic_rerank(query, search_results)
             elif method == "hybrid":
                 return await self._hybrid_rerank(query, search_results)
+            elif method == "qwen":
+                return await self._qwen_rerank(query, search_results)
             elif method == "arabic_specific":
                 return await self._arabic_specific_rerank(query, search_results)
             else:
@@ -155,6 +162,13 @@ class RerankerService:
             semantic_results = await self._semantic_rerank(query, results.copy())
             semantic_scores = {r.chunk_id: r.rerank_score for r in semantic_results}
             
+            # Optional Qwen rerank
+            try:
+                qwen_results = await self._qwen_rerank(query, results.copy())
+                qwen_scores = {r.chunk_id: r.rerank_score for r in qwen_results}
+            except Exception:
+                qwen_scores = {}
+            
             # Normalize scores to 0-1 range
             bm25_values = list(bm25_scores.values())
             semantic_values = list(semantic_scores.values())
@@ -176,11 +190,15 @@ class RerankerService:
                 if semantic_max > semantic_min:
                     semantic_norm = (semantic_scores.get(chunk_id, 0) - semantic_min) / (semantic_max - semantic_min)
                 
+                # Normalize Qwen score if available
+                qwen_norm = qwen_scores.get(chunk_id, 0.0)
+                
                 # Weighted combination
                 hybrid_score = (
-                    result.score * 0.4 +      # Original embedding similarity
-                    bm25_norm * 0.35 +        # BM25 lexical matching
-                    semantic_norm * 0.25      # Semantic keyword matching
+                    result.score * 0.35 +      # Original embedding similarity
+                    bm25_norm * 0.3 +          # BM25 lexical matching
+                    semantic_norm * 0.2 +      # Semantic keyword matching
+                    qwen_norm * 0.15           # Qwen cross-encoder score
                 )
                 
                 result.rerank_score = hybrid_score
@@ -299,6 +317,87 @@ class RerankerService:
             
         except Exception:
             return 0.0
+
+    async def _ensure_qwen(self):
+        """Load Qwen cross-encoder reranker (HF) lazily."""
+        if self.hf_model is not None:
+            return
+        try:
+            await resource_manager.claim("reranker")
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer  # type: ignore
+            model_name = getattr(settings, 'RERANKER_MODEL', 'Qwen/Qwen3-Reranker-4B')
+            device = getattr(settings, 'RERANKER_DEVICE', 'auto')
+            self.logger.info(f"Loading Qwen reranker model: {model_name}")
+            
+            def _load():
+                tok = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+                mdl = AutoModelForSequenceClassification.from_pretrained(
+                    model_name, trust_remote_code=True, device_map=device
+                )
+                # Ensure padding token is set to avoid batch >1 failure
+                try:
+                    if tok.pad_token_id is None:
+                        if tok.eos_token is not None:
+                            tok.pad_token = tok.eos_token
+                        elif tok.unk_token is not None:
+                            tok.pad_token = tok.unk_token
+                    if getattr(mdl.config, 'pad_token_id', None) is None and tok.pad_token_id is not None:
+                        mdl.config.pad_token_id = tok.pad_token_id
+                except Exception:
+                    pass
+                return tok, mdl
+            loop = asyncio.get_event_loop()
+            self.hf_tokenizer, self.hf_model = await loop.run_in_executor(self.executor, _load)
+        except Exception as e:
+            self.logger.error(f"Failed to load Qwen reranker: {str(e)}")
+            raise
+
+    async def _qwen_rerank(self, query: str, results: List[SearchResult]) -> List[SearchResult]:
+        """Rerank using Qwen cross-encoder reranker."""
+        try:
+            await self._ensure_qwen()
+            pairs = [(query, r.text) for r in results]
+            loop = asyncio.get_event_loop()
+            
+            def _score_batch():
+                inputs = self.hf_tokenizer(
+                    [q for q, d in pairs],
+                    [d for q, d in pairs],
+                    padding=True,
+                    truncation=True,
+                    return_tensors="pt",
+                    max_length=1024,
+                )
+                if hasattr(self.hf_model, 'device'):
+                    inputs = {k: v.to(self.hf_model.device) for k, v in inputs.items()}
+                with torch.no_grad():
+                    logits = self.hf_model(**inputs).logits
+                # Normalize logits to a 1D score per pair
+                if logits.dim() == 2 and logits.size(-1) > 1:
+                    # Choose positive class logit as score
+                    scores_tensor = logits[:, -1]
+                else:
+                    scores_tensor = logits.view(-1)
+                scores = scores_tensor.detach().float().cpu().numpy().tolist()
+                return scores
+            scores = await loop.run_in_executor(self.executor, _score_batch)
+            
+            # Normalize to 0-1 via min-max
+            if scores:
+                smin, smax = float(min(scores)), float(max(scores))
+                norm_scores = [
+                    (float(s) - smin) / (smax - smin + 1e-12) if smax > smin else 0.0 for s in scores
+                ]
+            else:
+                norm_scores = [0.0] * len(results)
+            
+            for r, s in zip(results, norm_scores):
+                r.rerank_score = float(s)
+            
+            return sorted(results, key=lambda x: x.rerank_score or 0.0, reverse=True)[:settings.FINAL_TOP_K]
+        except Exception as e:
+            self.logger.error(f"Error in Qwen reranking: {str(e)}", exc_info=True)
+            return results
     
     async def _tokenize_text(self, text: str) -> List[str]:
         """Tokenize text for BM25"""
@@ -423,9 +522,26 @@ class RerankerService:
             return {"error": str(e)}
     
     def cleanup(self):
-        """Cleanup resources"""
-        if self.executor:
-            self.executor.shutdown(wait=True)
+        """Releases the reranker model from memory."""
+        if self.hf_model is None and self.hf_tokenizer is None:
+            return
+        self.logger.info("Cleaning up RerankerService resources...")
+        try:
+            del self.hf_model
+            del self.hf_tokenizer
+            self.hf_model = None
+            self.hf_tokenizer = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            self.logger.info("RerankerService resources cleaned up successfully.")
+        except Exception as e:
+            self.logger.error(f"Error during RerankerService cleanup: {e}", exc_info=True)
+
 
 # Global reranker service instance
 reranker_service = RerankerService()
+try:
+    resource_manager.register("reranker", reranker_service.cleanup)
+except Exception:
+    pass

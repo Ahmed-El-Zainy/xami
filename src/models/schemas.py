@@ -12,7 +12,7 @@ class OCRResult(BaseModel):
     confidence: float
     processing_time: float
     language_detected: str
-    page_count: int
+    num_pages: int
 
 class TextChunk(BaseModel):
     id: str

@@ -11,10 +11,13 @@ import os
 from typing import List, Tuple, Optional, Dict, Any
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import gc
 import warnings
 import subprocess
 import sys
 from pathlib import Path
+
+import fitz  # PyMuPDF
 
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 from qwen_vl_utils import process_vision_info
@@ -22,6 +25,7 @@ from qwen_vl_utils import process_vision_info
 from src.config.config_settings import settings
 from src.config.logging_config import get_logger, log_execution_time, CustomLoggerTracker
 from src.models.schemas import OCRResult
+from src.services.resource_manager import resource_manager
 
 warnings.filterwarnings("ignore")
 
@@ -255,22 +259,29 @@ class DotsOCRService:
         }
         
     async def initialize(self):
-        """Initialize DotsOCR model and processor with automatic download"""
+        """Initialize DotsOCR model and processor, preferring local model path."""
         if self._initialized:
             return
-            
+        
         try:
             self.logger.info("Initializing DotsOCR model...")
             
-            # Check if model exists, download if not
-            if not self.downloader.check_model_exists():
-                self.logger.info("DotsOCR model not found, downloading...")
-                success = await self.downloader.download_model()
-                if not success:
-                    raise Exception("Failed to download DotsOCR model")
-                
-                # Setup additional model files
-                await self.downloader.setup_model_files()
+            model_dir = Path(self.model_path)
+            if model_dir.exists() and model_dir.is_dir():
+                self.logger.info(f"Using local DotsOCR model at: {model_dir}")
+            else:
+                # Local path missing
+                if getattr(settings, 'DOTS_OCR_AUTO_DOWNLOAD', False):
+                    self.logger.info("Local DotsOCR model not found. Attempting to download...")
+                    success = await self.downloader.download_model()
+                    if not success:
+                        raise Exception("Failed to download DotsOCR model")
+                    await self.downloader.setup_model_files()
+                else:
+                    raise FileNotFoundError(
+                        f"DotsOCR model path not found: {model_dir}. "
+                        f"Set DOTS_OCR_MODEL_PATH correctly or enable DOTS_OCR_AUTO_DOWNLOAD."
+                    )
             
             # Load model and processor in executor to avoid blocking
             loop = asyncio.get_event_loop()
@@ -286,22 +297,27 @@ class DotsOCRService:
     def _load_model(self):
         """Load the DotsOCR model and processor"""
         try:
-            # Add the model directory to Python path
-            sys.path.insert(0, str(Path(self.model_path).parent))
+            sys.path.insert(0, str(Path(self.model_path).parent.parent))
+            import importlib
+            importlib.import_module("transformers.models.qwen2")
+            os.environ["HF_MODULES_CACHE"] = os.path.join(str(Path(self.model_path).parent.parent), ".hf_modules_cache")
             
+            # Use environment variable to force CPU if needed
+            device_map_value = settings.DOTS_OCR_DEVICE
+            
+            torch_dtype = torch.bfloat16 if (device_map_value != "cpu" and torch.cuda.is_available()) else torch.float32
+
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
+                torch_dtype=torch_dtype,
+                device_map=device_map_value if device_map_value != "auto" else "auto",
                 trust_remote_code=True,
+                attn_implementation="sdpa" # Use SDPA as a robust fallback
             )
-            self.processor = AutoProcessor.from_pretrained(
-                self.model_path, 
-                trust_remote_code=True
-            )
-            
+            self.processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True)
+            self.logger.info(f"DotsOCR model '{self.model_path}' loaded on device_map='{device_map_value}'")
         except Exception as e:
-            self.logger.error(f"Error loading DotsOCR model: {str(e)}")
+            self.logger.error(f"Error loading DotsOCR model: {e}", exc_info=True)
             raise
     
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
@@ -339,14 +355,16 @@ class DotsOCRService:
             text = self.processor.apply_chat_template(
                 messages,
                 tokenize=False,
-                add_generation_prompt=True
+                add_generation_prompt=True,
+                add_vision_id=True
             )
             image_inputs, video_inputs = process_vision_info(messages)
             inputs = self.processor(
                 text=[text],
                 images=image_inputs,
                 videos=video_inputs,
-                padding=True,
+                padding=False,
+                truncation=False,
                 return_tensors="pt",
             )
 
@@ -354,8 +372,9 @@ class DotsOCRService:
             device = next(self.model.parameters()).device
             inputs = inputs.to(device)
 
-            # Inference: Generation of the output
-            generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
+            # Inference: Generation of the output (throttled for memory)
+            max_new = int(os.environ.get("DOTS_OCR_MAX_NEW_TOKENS", "2048"))
+            generated_ids = self.model.generate(**inputs, max_new_tokens=max_new)
             generated_ids_trimmed = [
                 out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
             ]
@@ -372,8 +391,13 @@ class DotsOCRService:
             return ""
     
     @log_execution_time
-    async def extract_text_from_pdf(self, pdf_path: str, enhance_quality: bool = True, output_format: str = "txt") -> OCRResult:
-        """Extract text from PDF using DotsOCR"""
+    async def extract_text_from_pdf(
+        self, 
+        pdf_path: str, 
+        max_pages: Optional[int] = None,
+        start_page: Optional[int] = None,
+        end_page: Optional[int] = None
+    ) -> OCRResult:
         if not self._initialized:
             await self.initialize()
         
@@ -385,93 +409,139 @@ class DotsOCRService:
         
         try:
             self.logger.info(f"Starting DotsOCR processing for: {pdf_path}")
+
+            doc = fitz.open(pdf_path)
             
-            # Convert PDF to images
-            loop = asyncio.get_event_loop()
-            images = await loop.run_in_executor(
-                self.executor,
-                lambda: convert_from_path(pdf_path, dpi=300)
-            )
-            
-            page_count = len(images)
-            self.logger.info(f"PDF converted to {page_count} images")
-            
-            # Create temporary directory for images
-            temp_dir = os.path.join(os.path.dirname(pdf_path), 'temp_images')
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            try:
-                for page_num, image in enumerate(images, 1):
-                    self.logger.info(f"Processing page {page_num}/{page_count}")
-                    
-                    # Save image temporarily
-                    temp_image_path = os.path.join(temp_dir, f'page_{page_num}.png')
-                    image.save(temp_image_path)
-                    
-                    # Process with DotsOCR
-                    page_text = await loop.run_in_executor(
-                        self.executor,
-                        lambda p=temp_image_path, f=output_format: asyncio.run(
-                            self._process_image_with_dots_ocr(p, f)
-                        )
-                    )
-                    
-                    if page_text.strip():
-                        all_text.append(page_text.strip())
-                        confidence = self._estimate_confidence(page_text)
-                        total_confidence += confidence
-                        
-                        # Detect language from first page with substantial text
-                        if page_num == 1:
-                            detected_lang = self._detect_language(page_text)
-                            detected_languages.add(detected_lang)
-                    
-                    # Clean up temporary image
-                    if os.path.exists(temp_image_path):
-                        os.remove(temp_image_path)
-                
-            finally:
-                # Clean up temporary directory
-                if os.path.exists(temp_dir):
-                    try:
-                        os.rmdir(temp_dir)
-                    except OSError:
-                        pass
-            
-            # Combine all text based on output format
-            if output_format == "json":
-                final_text = self._combine_json_pages(all_text)
+            # Page range logic
+            first_page = (start_page - 1) if start_page else 0
+            if end_page:
+                last_page = min(end_page, len(doc))
+            elif max_pages:
+                last_page = min(first_page + max_pages, len(doc))
             else:
-                separator = "\n\n---\n\n" if output_format == "md" else "\n\n"
-                final_text = separator.join(all_text)
+                last_page = len(doc)
             
-            avg_confidence = total_confidence / page_count if page_count > 0 else 0
+            page_numbers_to_process = range(first_page, last_page)
+            num_pages_to_process = len(page_numbers_to_process)
+
+            if num_pages_to_process <= 0:
+                self.logger.warning("No pages to process with the given page range.")
+                return OCRResult(text="", num_pages=0, confidence=0.0)
+
+            images = self._convert_pdf_to_images(
+                doc, 
+                dpi=settings.DOTS_OCR_DPI, 
+                page_numbers=page_numbers_to_process
+            )
+            self.logger.info(f"PDF converted to {len(images)} images for processing")
+
+            full_text = ""
+            confidences = []
+
+            for i, (image, page_num) in enumerate(zip(images, page_numbers_to_process)):
+                self.logger.info(f"Processing page {i+1}/{num_pages_to_process} (Original page: {page_num + 1})")
+                text, confidence = await self._process_image(image)
+                full_text += f"--- Page {page_num + 1} ---\n{text}\n\n"
+                if confidence is not None:
+                    confidences.append(confidence)
+
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+            
             processing_time = time.time() - start_time
-            
-            primary_language = list(detected_languages)[0] if detected_languages else "ar"
-            
-            result = OCRResult(
-                text=final_text,
+            # For simplicity, language is assumed to be Arabic for this project context
+            language = "ar"
+
+            self.logger.info(f"DotsOCR completed. Pages: {num_pages_to_process}, Confidence: {avg_confidence:.2f}, Time: {processing_time:.2f}s")
+            return OCRResult(
+                text=full_text, 
+                num_pages=num_pages_to_process, 
                 confidence=avg_confidence,
                 processing_time=processing_time,
-                language_detected=primary_language,
-                page_count=page_count
+                language_detected=language
             )
-            
-            self.logger.info(f"DotsOCR completed. Pages: {page_count}, Confidence: {avg_confidence:.2f}, Time: {processing_time:.2f}s")
-            return result
-            
         except Exception as e:
-            processing_time = time.time() - start_time
-            self.logger.error(f"DotsOCR processing failed: {str(e)}")
+            self.logger.error(f"Error in DotsOCR PDF processing: {e}", exc_info=True)
             return OCRResult(
-                text="",
+                text="", 
+                num_pages=0, 
                 confidence=0.0,
-                processing_time=processing_time,
-                language_detected="unknown",
-                page_count=page_count
+                processing_time=0.0,
+                language_detected="unknown"
             )
-    
+
+    async def _process_image(self, image: Image.Image) -> tuple[str, Optional[float]]:
+        """Process a single image with DotsOCR"""
+        try:
+            # Convert PIL Image to bytes
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format="PNG")
+            img_byte_arr.seek(0)
+            image_path = "temp_image.png"
+            with open(image_path, "wb") as f:
+                f.write(img_byte_arr.getvalue())
+            
+            # Prepare messages for the model
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "image": image_path
+                        },
+                        {"type": "text", "text": self.prompts["txt"]} # Use default prompt for image processing
+                    ]
+                }
+            ]
+
+            # Preparation for inference
+            text = self.processor.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                add_vision_id=True
+            )
+            image_inputs, video_inputs = process_vision_info(messages)
+            inputs = self.processor(
+                text=[text],
+                images=image_inputs,
+                videos=video_inputs,
+                padding=False,
+                truncation=False,
+                return_tensors="pt",
+            )
+
+            # Move to appropriate device
+            device = next(self.model.parameters()).device
+            inputs = inputs.to(device)
+
+            # Inference: Generation of the output (throttled for memory)
+            max_new = int(os.environ.get("DOTS_OCR_MAX_NEW_TOKENS", "2048"))
+            generated_ids = self.model.generate(**inputs, max_new_tokens=max_new)
+            generated_ids_trimmed = [
+                out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+            ]
+            output_text = self.processor.batch_decode(
+                generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )
+
+            # Extract the output text (it's a list, get first element)
+            text_content = output_text[0] if output_text else ""
+            
+            # Attempt to parse confidence from the model's output if available
+            confidence = None
+            try:
+                parsed_output = json.loads(text_content)
+                if "total_confidence" in parsed_output and parsed_output["total_confidence"] is not None:
+                    confidence = float(parsed_output["total_confidence"])
+            except json.JSONDecodeError:
+                pass # Not a JSON output, confidence will be estimated
+            
+            return text_content, confidence
+        except Exception as e:
+            self.logger.error(f"Error processing image with DotsOCR: {e}", exc_info=True)
+            return "", 0.0
+
     def _combine_json_pages(self, json_texts: List[str]) -> str:
         """Combine multiple JSON pages into a single JSON structure"""
         try:
@@ -578,18 +648,46 @@ class DotsOCRService:
         }
     
     def cleanup(self):
-        """Cleanup resources"""
-        if self.executor:
-            self.executor.shutdown(wait=True)
-        
-        # Clear GPU memory
-        if self.model is not None:
+        """Releases the OCR model and processor from memory."""
+        if not self._initialized:
+            return
+        self.logger.info("Cleaning up DotsOCRService resources...")
+        try:
             del self.model
             del self.processor
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        
-        self._initialized = False
+            self.model = None
+            self.processor = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+            self.logger.info("DotsOCRService resources cleaned up successfully.")
+        except Exception as e:
+            self.logger.error(f"Error during DotsOCRService cleanup: {e}", exc_info=True)
+        finally:
+            self._initialized = False
+
+    def _convert_pdf_to_images(self, doc: fitz.Document, dpi: int, page_numbers: range) -> List[Image.Image]:
+        """Converts PDF pages to images using PyMuPDF."""
+        images = []
+        for page_num in page_numbers:
+            page = doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=dpi)
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            images.append(img)
+        return images
+
+    def _parse_ocr_json(self, json_string: str) -> dict:
+        """Parses the JSON output from the OCR model."""
+        try:
+            return json.loads(json_string)
+        except json.JSONDecodeError:
+            self.logger.warning("Failed to parse JSON output from DotsOCR.")
+            return {}
 
 
 # Global OCR service instance
 ocr_service = DotsOCRService()
+try:
+    resource_manager.register("ocr", ocr_service.cleanup)
+except Exception:
+    pass
