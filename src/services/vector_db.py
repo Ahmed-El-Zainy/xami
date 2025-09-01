@@ -111,14 +111,11 @@ class VectorDBService:
         """Add embeddings to the vector database"""
         if not self.client:
             await self.initialize()
-        
         if not embeddings:
             self.logger.warning("No embeddings to add")
             return True
-        
         try:
             self.logger.info(f"Adding {len(embeddings)} embeddings to vector database")
-            
             # Prepare points for insertion
             points = []
             for embedding_result in embeddings:
@@ -126,9 +123,7 @@ class VectorDBService:
                 payload = {
                     "text": embedding_result.text,
                     "chunk_id": embedding_result.chunk_id,
-                    **embedding_result.metadata
-                }
-                
+                    **embedding_result.metadata}
                 # Create point
                 point = PointStruct(
                     id=str(uuid.uuid4()),  # Qdrant point ID
@@ -314,13 +309,11 @@ class VectorDBService:
         
         try:
             self.logger.info(f"Creating index on field: {field_name}")
-            
             self.client.create_payload_index(
                 collection_name=self.collection_name,
                 field_name=field_name,
                 field_schema=models.PayloadSchemaType.KEYWORD,
-                wait=True
-            )
+                wait=True)
             
             self.logger.info(f"Index created successfully on {field_name}")
             return True
