@@ -1,4 +1,4 @@
-# xami
+
 <!-- 
 # Directory structure
 """
@@ -38,7 +38,6 @@ ocr/
 
 
 
-# README.md
 # Arabic Educational RAG Pipeline 📚🤖
 
 A complete RAG (Retrieval-Augmented Generation) pipeline specifically designed for Arabic educational content, perfect for secondary school materials up to 500+ pages.
