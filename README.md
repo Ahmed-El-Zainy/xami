@@ -56,6 +56,9 @@ A complete RAG (Retrieval-Augmented Generation) pipeline specifically designed f
 
 ## 🏗️ Architecture
 
+
+
+
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   PDF Upload    │───▶│   OCR Service   │───▶│ Text Processor  │
